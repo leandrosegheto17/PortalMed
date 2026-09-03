@@ -520,6 +520,166 @@ describe('BE-03 — guard de aplicação de tenant_id + Row-Level Security', () 
     });
   });
 
+  describe('[SEC-BUG-001] privilégio de banco da role portalmed_app em audit_events/consent_records (append-only)', () => {
+    /**
+     * Regressão de `SEC-BUG-001` (`SECURITY-REVIEW.md` "Lote 3"/
+     * `BLOCKERS.md` Bloqueio 004): a migration `create-app-database-role`
+     * concedia `UPDATE`/`DELETE` também a `audit_events`/`consent_records`,
+     * violando `GUARDRAILS.md` D.18/F.28 (ADR-009) — nenhuma camada
+     * compensatória existia (RLS restringe linhas, não tipo de operação).
+     * Este teste consulta o catálogo do Postgres diretamente
+     * (`has_table_privilege`, não uma suposição sobre o código da
+     * migration) e tenta, de fato, executar `UPDATE`/`DELETE`/`INSERT`/
+     * `SELECT` reais como a role `portalmed_app` — para que uma futura
+     * reescrita desta migration (BE-19/BE-29) não reintroduza o privilégio
+     * por descuido.
+     */
+    const APPEND_ONLY_TABLES = ['audit_events', 'consent_records'] as const;
+    const OTHER_DOMAIN_TABLES = DOMAIN_TABLES.filter(
+      (table) => !(APPEND_ONLY_TABLES as readonly string[]).includes(table),
+    );
+
+    it.each(APPEND_ONLY_TABLES)(
+      'has_table_privilege confirma que portalmed_app NÃO tem UPDATE nem DELETE em "%s" (só SELECT/INSERT)',
+      async (table) => {
+        const { rows } = await adminClient.query(
+          `SELECT
+             has_table_privilege('portalmed_app', $1, 'SELECT') AS can_select,
+             has_table_privilege('portalmed_app', $1, 'INSERT') AS can_insert,
+             has_table_privilege('portalmed_app', $1, 'UPDATE') AS can_update,
+             has_table_privilege('portalmed_app', $1, 'DELETE') AS can_delete`,
+          [table],
+        );
+        expect(rows[0].can_select).toBe(true);
+        expect(rows[0].can_insert).toBe(true);
+        expect(rows[0].can_update).toBe(false);
+        expect(rows[0].can_delete).toBe(false);
+      },
+    );
+
+    it.each(OTHER_DOMAIN_TABLES)(
+      'has_table_privilege confirma que portalmed_app mantém o privilégio completo (SELECT/INSERT/UPDATE/DELETE) em "%s" (nenhuma regressão de escopo oposto)',
+      async (table) => {
+        const { rows } = await adminClient.query(
+          `SELECT
+             has_table_privilege('portalmed_app', $1, 'SELECT') AS can_select,
+             has_table_privilege('portalmed_app', $1, 'INSERT') AS can_insert,
+             has_table_privilege('portalmed_app', $1, 'UPDATE') AS can_update,
+             has_table_privilege('portalmed_app', $1, 'DELETE') AS can_delete`,
+          [table],
+        );
+        expect(rows[0].can_select).toBe(true);
+        expect(rows[0].can_insert).toBe(true);
+        expect(rows[0].can_update).toBe(true);
+        expect(rows[0].can_delete).toBe(true);
+      },
+    );
+
+    describe('tentativa real de UPDATE/DELETE/INSERT/SELECT em audit_events, via pg.Client cru como portalmed_app', () => {
+      let tenant: string;
+      let insertedId: string;
+
+      beforeAll(async () => {
+        tenant = await createTenant('Hospital SEC-BUG-001 A', 'HOSP-SECBUG-A');
+        const { rows } = await adminClient.query(
+          `INSERT INTO audit_events (tenant_id, tipo_evento)
+           VALUES ($1, 'teste_sec_bug_001') RETURNING id`,
+          [tenant],
+        );
+        insertedId = rows[0].id as string;
+      });
+
+      it('SELECT real funciona (privilégio esperado)', async () => {
+        const rows = await withAppRoleClient(tenant, (client) =>
+          client.query('SELECT id FROM audit_events WHERE id = $1', [insertedId]).then((r) => r.rows),
+        );
+        expect(rows).toHaveLength(1);
+      });
+
+      it('INSERT real funciona (privilégio esperado)', async () => {
+        const rows = await withAppRoleClient(tenant, (client) =>
+          client
+            .query(
+              `INSERT INTO audit_events (tenant_id, tipo_evento)
+               VALUES ($1, 'teste_sec_bug_001_insert') RETURNING id`,
+              [tenant],
+            )
+            .then((r) => r.rows),
+        );
+        expect(rows).toHaveLength(1);
+      });
+
+      it('UPDATE real é rejeitado pelo Postgres com erro de permissão (não apenas pela RLS)', async () => {
+        await expect(
+          withAppRoleClient(tenant, (client) =>
+            client.query(`UPDATE audit_events SET tipo_evento = 'adulterado' WHERE id = $1`, [
+              insertedId,
+            ]),
+          ),
+        ).rejects.toThrow(/permission denied/i);
+      });
+
+      it('DELETE real é rejeitado pelo Postgres com erro de permissão (não apenas pela RLS)', async () => {
+        await expect(
+          withAppRoleClient(tenant, (client) =>
+            client.query(`DELETE FROM audit_events WHERE id = $1`, [insertedId]),
+          ),
+        ).rejects.toThrow(/permission denied/i);
+      });
+    });
+
+    describe('tentativa real de UPDATE/DELETE em consent_records, via pg.Client cru como portalmed_app', () => {
+      let tenant: string;
+      let insertedId: string;
+
+      beforeAll(async () => {
+        tenant = await createTenant('Hospital SEC-BUG-001 B', 'HOSP-SECBUG-B');
+
+        const { rows: userRows } = await adminClient.query(
+          `INSERT INTO users (tenant_id, cpf_criptografado, cpf_hash, nome, data_nascimento, papel)
+           VALUES ($1, pgp_sym_encrypt('99988877766', 'sec-bug-001-test-key'),
+                   encode(digest('99988877766', 'sha256'), 'hex'), 'Paciente SEC-BUG-001',
+                   '1990-01-01', 'paciente')
+           RETURNING id`,
+          [tenant],
+        );
+        const userId = userRows[0].id as string;
+
+        const { rows: termsRows } = await adminClient.query(
+          `INSERT INTO terms_versions (tenant_id, versao, conteudo)
+           VALUES ($1, 'v1-sec-bug-001', 'conteudo de teste') RETURNING id`,
+          [tenant],
+        );
+        const termsVersionId = termsRows[0].id as string;
+
+        const { rows } = await adminClient.query(
+          `INSERT INTO consent_records (tenant_id, user_id, terms_version_id, tipo)
+           VALUES ($1, $2, $3, 'termos_uso') RETURNING id`,
+          [tenant, userId, termsVersionId],
+        );
+        insertedId = rows[0].id as string;
+      });
+
+      it('UPDATE real é rejeitado pelo Postgres com erro de permissão', async () => {
+        await expect(
+          withAppRoleClient(tenant, (client) =>
+            client.query(`UPDATE consent_records SET tipo = 'consentimento_dado_saude' WHERE id = $1`, [
+              insertedId,
+            ]),
+          ),
+        ).rejects.toThrow(/permission denied/i);
+      });
+
+      it('DELETE real é rejeitado pelo Postgres com erro de permissão', async () => {
+        await expect(
+          withAppRoleClient(tenant, (client) =>
+            client.query(`DELETE FROM consent_records WHERE id = $1`, [insertedId]),
+          ),
+        ).rejects.toThrow(/permission denied/i);
+      });
+    });
+  });
+
   describe('reversibilidade (mesmo padrão de BE-02)', () => {
     it('down desfaz as duas migrations de BE-03 (role + RLS) sem deixar a role ou as políticas para trás', async () => {
       await runMigrations('down', 2);

@@ -70,6 +70,25 @@ describe('BE-04 — suíte exaustiva de vazamento cruzado entre tenants (condiç
   const APP_ROLE_PASSWORD = 'be04-test-only-password';
   const ENCRYPTION_KEY = 'be04-test-only-pgcrypto-key';
 
+  /**
+   * Correção de `SEC-BUG-001` (`SECURITY-REVIEW.md` "Lote 3"/`BLOCKERS.md`
+   * Bloqueio 004): a role `portalmed_app` deixou de ter privilégio de
+   * `UPDATE`/`DELETE` em `audit_events`/`consent_records` (append-only,
+   * GUARDRAILS.md D.18/F.28). Nos blocos de teste de `UPDATE`/`DELETE`
+   * abaixo (Camada 1 e Camada 3 — ambas conectam como `portalmed_app`), essas
+   * duas tabelas precisam de uma asserção diferente das demais 11: em vez de
+   * "a operação roda mas afeta 0 linhas" (contenção via `tenant_id`/RLS), a
+   * expectativa passa a ser "a operação é rejeitada pelo Postgres com erro
+   * de permissão" — a operação é impossível, nem sequer dentro do próprio
+   * tenant. A Camada 2 (conexão do superusuário do container) não é afetada:
+   * superusuário sempre ignora verificação de privilégio de GRANT, do mesmo
+   * jeito que já ignora RLS.
+   */
+  const APPEND_ONLY_TABLES = ['audit_events', 'consent_records'] as const;
+  const MUTATION_CAPABLE_TABLES = DOMAIN_TABLES.filter(
+    (table) => !(APPEND_ONLY_TABLES as readonly string[]).includes(table),
+  );
+
   let container: StartedPostgreSqlContainer;
   let adminClient: Client; // superusuário do container (roda migrations, semeia dados ignorando RLS)
   let appRoleConnectionUri: string;
@@ -407,7 +426,7 @@ describe('BE-04 — suíte exaustiva de vazamento cruzado entre tenants (condiç
         },
       );
 
-      it.each(DOMAIN_TABLES)(
+      it.each(MUTATION_CAPABLE_TABLES)(
         'tabela "%s": updateById(idDoTenantB) sob o tenant A não afeta a linha do tenant B',
         async (table) => {
           const { column, value } = MUTABLE_COLUMN_BY_TABLE[table];
@@ -424,7 +443,25 @@ describe('BE-04 — suíte exaustiva de vazamento cruzado entre tenants (condiç
         },
       );
 
-      it.each(DOMAIN_TABLES)(
+      it.each(APPEND_ONLY_TABLES)(
+        '[SEC-BUG-001] tabela "%s" (append-only): updateById(idDoTenantB) sob o tenant A é rejeitado pelo Postgres com erro de permissão (privilégio de UPDATE não existe, nem dentro do próprio tenant)',
+        async (table) => {
+          const { column, value } = MUTABLE_COLUMN_BY_TABLE[table];
+          const repository = new DomainTableTestRepository(appRoleConnection, table);
+
+          await expect(
+            TenantContext.run(tenantA, () =>
+              repository.updateRow(fixtureB[table], { [column]: value }),
+            ),
+          ).rejects.toThrow(/permission denied/i);
+
+          const currentValue = await readColumnAsText(table, fixtureB[table], column);
+          expect(currentValue).toBe(originalValueByTable[table]);
+          expect(currentValue).not.toBe(value);
+        },
+      );
+
+      it.each(MUTATION_CAPABLE_TABLES)(
         'tabela "%s": deleteById(idDoTenantB) sob o tenant A não remove a linha do tenant B',
         async (table) => {
           const repository = new DomainTableTestRepository(appRoleConnection, table);
@@ -433,6 +470,18 @@ describe('BE-04 — suíte exaustiva de vazamento cruzado entre tenants (condiç
             repository.removeById(deleteFixtureC[table]),
           );
           expect(deletedCount).toBe(0);
+          expect(await rowExists(table, deleteFixtureC[table])).toBe(true);
+        },
+      );
+
+      it.each(APPEND_ONLY_TABLES)(
+        '[SEC-BUG-001] tabela "%s" (append-only): deleteById(idDoTenantB) sob o tenant A é rejeitado pelo Postgres com erro de permissão (privilégio de DELETE não existe)',
+        async (table) => {
+          const repository = new DomainTableTestRepository(appRoleConnection, table);
+
+          await expect(
+            TenantContext.run(tenantA, () => repository.removeById(deleteFixtureC[table])),
+          ).rejects.toThrow(/permission denied/i);
           expect(await rowExists(table, deleteFixtureC[table])).toBe(true);
         },
       );
@@ -517,7 +566,7 @@ describe('BE-04 — suíte exaustiva de vazamento cruzado entre tenants (condiç
         },
       );
 
-      it.each(DOMAIN_TABLES)(
+      it.each(MUTATION_CAPABLE_TABLES)(
         'tabela "%s": UPDATE ... WHERE id = idDoTenantB (sem filtro de tenant_id), com app.tenant_id=A, afeta 0 linhas (RLS USING oculta a linha do alvo)',
         async (table) => {
           const { column, value } = MUTABLE_COLUMN_BY_TABLE[table];
@@ -531,13 +580,43 @@ describe('BE-04 — suíte exaustiva de vazamento cruzado entre tenants (condiç
         },
       );
 
-      it.each(DOMAIN_TABLES)(
+      it.each(APPEND_ONLY_TABLES)(
+        '[SEC-BUG-001] tabela "%s" (append-only): UPDATE ... WHERE id = idDoTenantB (sem filtro de tenant_id), com app.tenant_id=A, é rejeitado pelo Postgres com erro de permissão (a camada de privilégio de banco contém o vetor antes mesmo da RLS ser avaliada)',
+        async (table) => {
+          const { column, value } = MUTABLE_COLUMN_BY_TABLE[table];
+          await expect(
+            withAppRoleClient(tenantA, (client) =>
+              client.query(`UPDATE ${table} SET ${column} = $1 WHERE id = $2`, [
+                value,
+                fixtureB[table],
+              ]),
+            ),
+          ).rejects.toThrow(/permission denied/i);
+
+          const currentValue = await readColumnAsText(table, fixtureB[table], column);
+          expect(currentValue).toBe(originalValueByTable[table]);
+        },
+      );
+
+      it.each(MUTATION_CAPABLE_TABLES)(
         'tabela "%s": DELETE ... WHERE id = idDoTenantB (sem filtro de tenant_id), com app.tenant_id=A, afeta 0 linhas',
         async (table) => {
           const result = await withAppRoleClient(tenantA, (client) =>
             client.query(`DELETE FROM ${table} WHERE id = $1`, [deleteFixtureC[table]]),
           );
           expect(result.rowCount).toBe(0);
+          expect(await rowExists(table, deleteFixtureC[table])).toBe(true);
+        },
+      );
+
+      it.each(APPEND_ONLY_TABLES)(
+        '[SEC-BUG-001] tabela "%s" (append-only): DELETE ... WHERE id = idDoTenantB (sem filtro de tenant_id), com app.tenant_id=A, é rejeitado pelo Postgres com erro de permissão',
+        async (table) => {
+          await expect(
+            withAppRoleClient(tenantA, (client) =>
+              client.query(`DELETE FROM ${table} WHERE id = $1`, [deleteFixtureC[table]]),
+            ),
+          ).rejects.toThrow(/permission denied/i);
           expect(await rowExists(table, deleteFixtureC[table])).toBe(true);
         },
       );

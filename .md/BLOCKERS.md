@@ -237,3 +237,58 @@ retroativamente. Nenhuma ação adicional pendente sobre este bloqueio.
 - Artefatos alterados por esta resolução: `.md/GUARDRAILS.md` (regra A.5 +
   Log de Alterações), `.md/BLOCKERS.md` (este registro).
 - Artefato avaliado e **não** alterado: `.md/TASK.md` (ver item 4 acima).
+
+---
+
+## Bloqueio 004 — 2026-09-03
+
+- Reportado por: devsecops (auditoria completa de segurança do Lote 3 —
+  Segurança de Multi-tenancy, `SECURITY-REVIEW.md` "Lote 3")
+- Escalado para: backend (correção de código); cto (registro em paralelo,
+  Seção 7 de `SECURITY-REVIEW.md` "Lote 3" — relevância estratégica de
+  processo, não pré-requisito do bloqueio já aplicado por este agente)
+- Artefato/trecho afetado: `backend/migrations/1788336900000_create-app-
+  database-role.ts` (linhas 64-68), `backend/docs/tenant-guard-and-rls.md`
+  (linhas 177-183) / `GUARDRAILS.md` regras D.18 e F.28 (ADR-009)
+- Descrição: a migration que concede privilégio de banco à role de runtime
+  `portalmed_app` (`grantOnTables`, `[...DOMAIN_TABLES]`,
+  `['SELECT', 'INSERT', 'UPDATE', 'DELETE']`) inclui `audit_events` e
+  `consent_records` sem nenhuma exclusão — violando diretamente
+  `GUARDRAILS.md` D.18 ("a role de banco usada pela aplicação nunca recebe
+  `GRANT` de `UPDATE`/`DELETE` [em `AUDIT_EVENT`], apenas `INSERT`/`SELECT`,
+  ADR-009") e F.28 ("`CONSENT_RECORD` e o log de auditoria são registros
+  append-only por design — PROIBIDO qualquer... operação de UPDATE/DELETE").
+  As migrations que criam as duas tabelas já documentavam a exigência e
+  deferiam a correção para BE-29/BE-19 respectivamente, mas nenhuma das duas
+  tarefas foi concluída até o fechamento deste lote, e o deferimento não
+  seguiu o processo de exceção de `GUARDRAILS.md` regras 37-39 (nenhuma
+  entrada em `BLOCKERS.md` antes desta, nenhuma aprovação do CTO no Log de
+  Alterações). Agravante: `backend/docs/tenant-guard-and-rls.md` afirma que
+  a exceção de `audit_events` já está em vigor — afirmação factualmente
+  incorreta contra o estado atual da migration. Nenhuma camada compensatória
+  existe hoje (RLS só restringe linhas por tenant, não tipo de operação; o
+  hash chain de ADR-009 não está implementado); nenhum teste cobre a
+  restrição de privilégio. Fundamento de compliance obrigatório: RN-08
+  (`AUDIT_EVENT`, evidência para fiscalização LGPD) e RN-02 (`CONSENT_RECORD`,
+  consentimento específico de dado de saúde, Art. 11, I). Detalhamento
+  completo, incluindo trecho de código e análise de severidade, em
+  `SECURITY-REVIEW.md` "Lote 3", Seção 2 (`SEC-BUG-001`).
+- Impacto se não resolvido: bloqueia o deploy deste lote (achado de
+  severidade Alta, dentro da autoridade de bloqueio do DevSecOps). Se a
+  migration rodar contra qualquer ambiente real antes da correção, a role de
+  runtime da aplicação já nasce com privilégio que permite alterar/apagar
+  eventos de auditoria e registros de consentimento dentro do próprio
+  tenant — exatamente o cenário que ADR-009/RN-08/RN-02 exigem impedir no
+  nível de banco, não só de aplicação.
+- Sugestão (não prescritiva): em `1788336900000_create-app-database-role.ts`,
+  excluir `audit_events`/`consent_records` do `grantOnTables` genérico de
+  `UPDATE`/`DELETE` (conceder `SELECT`/`INSERT` a essas duas tabelas
+  separadamente) ou adicionar `revokeOnTables` subsequente restrito a
+  `['UPDATE', 'DELETE']` para as duas — não depende de BE-19/BE-29 completas
+  (hash chain/lógica de consentimento seguem escopo dessas tarefas; só a
+  restrição de privilégio precisa acompanhar a migration que já concede
+  privilégio à role, BE-03). Adicionar teste de regressão permanente
+  (`has_table_privilege('portalmed_app', 'audit_events'/'consent_records',
+  'UPDATE'/'DELETE')` = `false`) e corrigir a redação de
+  `tenant-guard-and-rls.md`.
+- Status: **Aberto**

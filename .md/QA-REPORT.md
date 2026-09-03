@@ -2600,6 +2600,7 @@ cumprida por implementação verificada, não apenas declarada.**
 | QA-DEBT-013 | FE-07 | Média | A linha FE-07 de `TASK.md` §3.11 se contradiz dentro da própria célula de Status, mesmo padrão de `QA-DEBT-010`/FE-06: começa com `Concluído — revisão do orquestrador reexecutou test/build/lint...` mas termina com "Por essa pendência real de endpoint, esta tarefa permanece `Em Andamento` (não `Concluída`)... Não marcada para revisão de conclusão por este agente — aguarda o orquestrador" (texto herdado do Frontend, aparentemente não podado ao prependar a nota do orquestrador). **Segunda ocorrência consecutiva** do mesmo padrão exato (FE-06 → FE-07), sugerindo que o processo de fechamento de tarefa é sistemático, não um lapso pontual. Não é bug funcional (build/teste/comportamento em runtime não afetados). | Aberto (débito, não bloqueia) — recomendação: Tech Lead/orquestrador reescreve a célula para um único veredito consistente; se uma **terceira** ocorrência do mesmo padrão acontecer em tarefa futura, este agente escala formalmente via `BLOCKERS.md` como problema de processo de fechamento de tarefas (não de decomposição) | Antes da próxima leitura formal de `TASK.md` por CTO/DevSecOps/DevOps |
 | QA-DEBT-014 | FE-07 | — (não é bug, é item de revalidação agendada) | `cross-platform-integration-testing` do fluxo TL-05→TL-06 (submissão final de cadastro + registro de consentimento) não pôde ser executado ponta a ponta — `termsApi.ts`/`registrationApi.ts` são mocks (conteúdo placeholder de termos; `registrationApi` sempre retorna `{ success: true }`), sem nenhum `API-CONTRACT.yaml` publicado no repositório (confirmado nesta validação) e BE-18/BE-19 ainda `A Fazer`. As três telas estão implementadas e testadas via injeção de dependência, mas o payload real (possivelmente duas chamadas separadas, por RN-02) não foi validado contra um contrato real. Mesmo padrão estrutural de `QA-DEBT-002`/FE-01 e `QA-DEBT-011`/FE-06. | Aguardando dependência (BE-18 + BE-19 + `API-CONTRACT.yaml`) | Assim que BE-18/BE-19 publicarem o endpoint real e Frontend trocar `termsApi.ts`/`registrationApi.ts` |
 | QA-DEBT-015 | FE-07 | Baixa/Média | Nenhuma guarda de entrada em `CadastroDefinirSenhaPage` (TL-06)/`CadastroConfirmacaoPage` (TL-07) detecta a ausência de `personalData`/`termsVersion` em `location.state` quando o paciente alcança essas rotas sem passar por TL-02/TL-05 (URL direta, nova aba, favorito). Confirmado empiricamente (navegação real via Playwright direto para `/criar-conta/senha`): o formulário permanece funcional, o CTA "Criar conta" segue habilitado, e a submissão prossegue normalmente até TL-07 com mensagem genérica de sucesso, sem nome — como se o cadastro tivesse sido concluído com êxito, mesmo sem nome/CPF/e-mail/celular/versão dos termos. Com o mock atual (sempre `success: true`) isso não quebra a UI; contra o endpoint real, o desfecho mais provável é rejeição por campo obrigatório ausente, caindo no branch de erro genérico já implementado — que não orienta o paciente a voltar ao início do cadastro (a única ação que resolveria a causa raiz), criando risco de loop de tentativas fadadas ao mesmo erro. Refresh real (F5) mid-fluxo **não** apresenta este risco (`history.state` do navegador preserva o dado através de reload, confirmado empiricamente) — o risco é específico de navegação direta sem histórico prévio. | Aberto (débito, não bloqueia) | Antes de BE-18/BE-19 publicarem o endpoint real (quando o mock otimista deixar de mascarar o cenário) — adicionar guarda simples (`if (!personalData) navigate('/criar-conta', { replace: true })`) no mount de TL-06 |
+| QA-DEBT-016 | BE-08 | Baixa | Achado nesta validação de Lote 1 (Seção 4.4). O teste e2e de expiração de URL assinada (`object-storage-infrastructure.e2e-spec.ts`, "um override de expiração curto...") não afirma "GET depois do prazo falha" — limitação documentada e aceita do próprio LocalStack (bug conhecido de longa data, `X-Amz-Expires` não é enforced pelo S3 simulado; issues públicas `localstack/localstack#7840`/`#9538`/`#2493`/`#1685`). O teste prova que o override é corretamente embutido na assinatura e funciona dentro do prazo; a garantia de expiração real de fato acontecer no servidor fica inteiramente delegada à implementação SigV4 de `@aws-sdk/s3-request-presigner` contra o S3 real da AWS, nunca reimplementada por este projeto — decisão de escopo razoável, não uma falha de teste. Ainda assim, o comportamento de expiração real (URL assinada rejeitada pela AWS após o TTL) nunca foi observado empiricamente neste projeto, nem contra LocalStack nem contra AWS real. | Aberto (débito, não bloqueia) | Antes do primeiro deploy em `staging` com tráfego real de laudo/imagem (a partir do fechamento do Lote 5, RF-06/RF-07/RF-08) — validação manual pontual (`curl` a uma URL assinada de TTL curto, antes e depois de expirar, contra o bucket real de `staging`) para confirmar o comportamento de expiração fora do ambiente de teste, sem exigir reabertura de BE-08 |
 
 ---
 
@@ -2803,3 +2804,485 @@ QA, sem nenhum bug de severidade Alta/Crítica em aberto em nenhuma tarefa**.
 Por instrução explícita do orquestrador, esta validação encerra o lote de
 trabalho atual — nenhuma sinalização de próxima tarefa a iniciar é feita por
 este agente; a execução pausa aqui.
+
+**Nota de transição (2026-09-03)**: a partir daqui, a convenção de
+`EXECUTION-FLOW.md` (adotada em 2026-09-03, ver `TASK.md` nota de revisão no
+topo do documento e §4.1 "Lotes de Entrega") muda o ritmo de validação deste
+agente — passa a validar **por lote fechado**, não mais tarefa a tarefa. As
+entradas acima (Seções 1.1 a 1.11 e 3, 3.1, 3.2), todas anteriores a essa
+convenção, permanecem como histórico e não são reabertas ou reescritas por
+essa mudança de processo. A primeira validação sob a nova convenção é o
+**Lote 1**, Seção 4 abaixo.
+
+---
+
+## 4. Validação por Lote — Lote 1: Fundação de Infraestrutura e Design System
+
+**Lote** (`TASK.md` §4.1.1): BE-01, BE-02, BE-05, BE-08 (Backend) + FE-01,
+FE-02, FE-03, FE-04 (Frontend) — 34 dp, Fase 0. Gatilho de validação: todas as
+8 tarefas do lote marcadas `Concluído` em `TASK.md` (confirmado por leitura
+direta da Seção 3 em 2026-09-03 — última a fechar foi BE-08, cuja própria
+célula de status registra "Última tarefa pendente do Lote 1 ... com esta
+conclusão, todas as tarefas do lote ... estão `Concluído`, fechando o Lote
+1"). **Fora de escopo desta validação, por instrução explícita**: BE-03 e
+BE-04, embora referenciados na Seção 4.1.1 de `TASK.md` como parte de um lote
+adjacente (Lote 3), pertencem a esse lote, não a este — não revalidados
+aqui, mesmo já tendo histórico de QA anterior (Seções 1.6-1.6.2, 1.11) de
+antes da convenção de lote.
+
+**Método**: quatro das oito tarefas (BE-01, BE-02, FE-01 a FE-04) já têm
+validação individual detalhada, registrada antes da convenção de lote
+(Seções 1.1 a 1.7) — não repetidas linha a linha aqui; em vez disso, esta
+seção **reconfirma empiricamente** os números daquelas validações (suíte
+reexecutada de novo, de forma independente, nesta data) e verifica se algo
+mudou desde então. BE-05 e BE-08 nunca tiveram uma entrada individual própria
+neste relatório (concluídas depois que BE-04 fechou a última validação
+tarefa-a-tarefa, Seção 1.11) — são validadas aqui pela primeira vez, com o
+mesmo rigor das seções anteriores.
+
+### 4.1 Execução da suíte completa (reexecutada de forma independente, 2026-09-03)
+
+| Comando | Escopo | Resultado |
+|---|---|---|
+| `npm run lint` (`backend/`) | `lint:oxlint` + `lint:boundaries` | Limpo |
+| `npm run build` (`backend/`) | `nest build` | Limpo |
+| `npm run test` (`backend/`) | Unit/integração (vitest) | **119/119 passando** — bate exatamente com o último número relatado por BE-08 (`TASK.md`) |
+| `npm run test:e2e` (`backend/`) | E2E via testcontainers (Postgres/Redis/LocalStack reais) | **245/245 passando** — bate exatamente com o último número relatado por BE-08 |
+| `npm run lint` (`frontend/`) | `oxlint` | Limpo |
+| `npm run build` (`frontend/`) | `tsc -b && vite build` | Limpo, 91 módulos transformados |
+| `npm run test` (`frontend/`) | Suíte completa do frontend | **279/279 passando** (inclui FE-05/FE-06/FE-07, já adiantadas do Lote 4 — ver nota de escopo em 4.6) |
+| `npx vitest run src/design-system` (`frontend/`) | Escopo isolado de FE-01 a FE-04 | **181/181 passando** — bate exatamente com o total acumulado relatado por FE-04, confirmando que nenhuma tarefa posterior quebrou o design system |
+
+Nenhuma divergência entre o que `TASK.md` relata e o que a suíte real produz,
+em nenhuma das 8 tarefas. Docker disponível no ambiente de validação —
+testcontainers (Postgres, Redis, LocalStack) executados de ponta a ponta, sem
+mock substituindo infraestrutura real em nenhum dos três.
+
+### 4.2 BE-01 — Setup do monolito core (reconfirmação)
+
+**Veredito**: **Aprovado** (mantido, sem ressalvas — Seção 1.2 tem o
+detalhamento original). Reconfirmado nesta validação: 11 módulos NestJS em
+`backend/src/modules/`, 1:1 com os bounded contexts de `SDD.md` §2.1, todos
+importados só via barrel (`app.module.ts` lido diretamente). Regra de lint de
+fronteira (`backend/src/tooling/eslint-rules/module-boundary-rule.js`) ativa
+e limpa. CI (`.github/workflows/backend-ci.yml`, lido diretamente) roda
+`lint:oxlint` + `lint:boundaries` + `test:cov` + `test:e2e` + `build` em todo
+PR que toque `backend/**`, confirmado nesta validação — nenhuma regressão de
+escopo desde a validação original.
+
+### 4.3 BE-02 — PostgreSQL + schema base multi-tenant (reconfirmação)
+
+**Veredito**: **Aprovado com ressalvas** (mantido — `QA-DEBT-006`, severidade
+Média, ainda aberto; Seção 1.4 tem o detalhamento original). Reconfirmado
+nesta validação por leitura direta das 15 migrations de `backend/migrations/`
+(não só a contagem): as 14 tabelas de `SDD.md` §5 existem, `tenant_id uuid
+NOT NULL` + FK em toda tabela de domínio (`exam_files`,
+`integration_endpoint_configs`, `branding_configs` lidas integralmente nesta
+validação), os 5 campos de ADR-011 em `branding_configs`
+(`status_validacao_contraste` com `CHECK` de enum e default `pendente`) e os
+3 UIDs DICOM nullable + `dicom_remote_ae_title` com índice único parcial
+global (não composto) em `exam_files`/`integration_endpoint_configs`,
+exatamente como ADR-012 exige. `pgcrypto` habilitado e `users.cpf_hash`/
+`cpf_criptografado` confirmados na migration correspondente.
+`QA-DEBT-006` (constraint de AE Title implementada como única global, não
+composta com `tenant_id` — leitura correta do ADR-012, mas fora do processo
+formal de exceção a `GUARDRAILS.md` regra A.5) segue aberto, prazo inalterado
+("antes de BE-38", Lote 5, ainda não iniciado — sem violação de prazo).
+
+### 4.4 BE-05 — Setup Redis (sessão + filas BullMQ) — primeira validação
+
+**Critério de aceite validado** (`TASK.md` §3.1, linha BE-05): "Instância
+Redis acessível pela aplicação; estrutura de chave de sessão definida; fila
+BullMQ operacional para jobs assíncronos (conversão de imagem, ingestão)."
+
+**Código revisado**: `backend/src/redis/` (`redis-config.ts`,
+`redis-connection.ts`, `redis-health.service.ts`, `redis.module.ts`,
+`session-key.ts`, `index.ts`) e `backend/src/queue/`
+(`queue-registry.service.ts`, `queue-connection.ts`, `queue.module.ts`,
+`index.ts`).
+
+**Checklist item a item**:
+
+1. **"Instância Redis acessível pela aplicação"** — **Atendido**.
+   `RedisHealthService.ping()` testado contra Redis real via testcontainers
+   (`redis:7-alpine`), tanto chamando `createRedisConnection` diretamente
+   quanto via DI do NestJS (`RedisModule` → `RedisHealthService`,
+   configurado só por env). Toda configuração vem de env
+   (`REDIS_HOST`/`PORT`/`PASSWORD`/`TLS`/`KEY_PREFIX`), nenhum valor
+   hardcoded — `REDIS_TLS` usa `parseStrictBoolean` (só aceita
+   `"true"`/`"false"` literal), lê corretamente em `.env.example`.
+2. **"Estrutura de chave de sessão definida"** — **Atendido**.
+   `buildSessionRedisKey` implementa `{prefixo}:session:{tenantId}:{sessionId}`,
+   com `tenantId` obrigatório (nunca opcional) — testado contra Redis real
+   que a mesma `sessionId` sob dois `tenantId` diferentes nunca colide (chave
+   física distinta, valor de um tenant nunca lido pela chave do outro).
+   Nenhuma lógica de criação/TTL deslizante/logout implementada aqui —
+   corretamente deferida a BE-14 (tarefa futura, fora deste lote), conforme o
+   próprio critério de aceite.
+3. **"Fila BullMQ operacional para jobs assíncronos"** — **Atendido**.
+   `test/queue/bullmq-infrastructure.e2e-spec.ts` prova, contra Redis real,
+   um ciclo completo produtor→worker→job `completed` tanto instanciando
+   `Queue`/`Worker` diretamente quanto via `QueueRegistryService.getQueue()`
+   (incluindo cache de instância por nome e fechamento em
+   `onModuleDestroy`). Nenhum nome de fila de negócio reservado nesta tarefa
+   — correto, é infraestrutura genérica.
+4. **Abstrações usáveis por tarefas futuras** (verificação de integração
+   cruzada pedida para este lote, já que BE-05 não tem consumidor ainda):
+   `QueueRegistryService.getQueue(name: string): Queue` e
+   `buildSessionRedisKey(keyPrefix, { tenantId, sessionId })` são assinaturas
+   simples, sem acoplamento a nenhuma lógica de negócio específica —
+   coerentes e diretamente utilizáveis por BE-07 (fila de conversão de
+   imagem), BE-14 (sessão) e BE-24 (fila de ingestão) sem necessidade de
+   refatoração. `REDIS_CONNECTION` deliberadamente não é reexportado pelo
+   barrel público (`src/redis/index.ts`, confirmado por leitura + teste
+   e2e), mesma disciplina já aplicada a `KYSELY_CONNECTION` — reduz risco de
+   um módulo de domínio futuro acessar Redis por fora do padrão sancionado.
+5. **Requisito não funcional (nenhum hardcode que deveria ser config)** —
+   Verificado: `SESSION_INACTIVITY_TTL_SECONDS` (900s, RF-04/`TASK.md` §1.7)
+   e `BULLMQ_PREFIX` configuráveis via env, documentados em `.env.example`,
+   nenhum valor numérico ou string de infraestrutura fixado no código.
+
+**Veredito**: **Aprovado**, sem ressalvas. Nenhum bug encontrado.
+
+### 4.5 BE-08 — Setup Object Storage (bucket SSE-KMS, região Brasil, URL assinada) — primeira validação
+
+**Critério de aceite validado** (`TASK.md` §3.1, linha BE-08): "Bucket
+provisionado em região Brasil (ADR-010); toda leitura de arquivo de
+laudo/imagem passa por URL assinada com expiração curta, nunca URL pública
+permanente."
+
+**Código revisado**: `backend/src/object-storage/` (`object-storage.service.ts`,
+`object-storage-config.ts`, `s3-client.ts`, `object-storage.module.ts`,
+`index.ts`) e `infra/modules/object-storage/` (referência, provisionamento
+real é do DevOps).
+
+**Checklist item a item** (requisito de maior severidade deste lote —
+GUARDRAILS.md itens 23/24, ADR-010):
+
+1. **"Nunca URL pública permanente"** — **Atendido, verificado
+   estruturalmente e empiricamente**. `ObjectStorageService` não expõe
+   nenhum método de URL pública — `getReadSignedUrl` é o único caminho de
+   leitura, sempre via `getSignedUrl` (SigV4) do SDK oficial da AWS. Teste
+   e2e contra LocalStack real prova que (a) a URL sempre contém
+   `X-Amz-Signature`/`X-Amz-Expires`, e (b) remover a assinatura da URL faz o
+   `GET` falhar (`status >= 400`) — não é "tecnicamente assinada mas
+   funcionalmente pública". Teto de expiração **não configurável por env**
+   (`MAX_SIGNED_URL_TTL_SECONDS = 900`, 15 min) aplicado tanto ao default
+   quanto a qualquer override do chamador, antes de qualquer chamada ao SDK —
+   testado (unitário) que um override acima do teto lança erro sem tocar o
+   SDK.
+2. **"Bucket provisionado em região Brasil"** — **Atendido, com defesa em
+   profundidade**. `loadObjectStorageConfig` rejeita qualquer
+   `OBJECT_STORAGE_REGION` fora de `KNOWN_BRAZIL_REGIONS` (hoje só
+   `sa-east-1`). Achado de segurança relevante **já corrigido pelo próprio
+   Backend antes desta validação** (2 rodadas de fix-loop, documentadas na
+   célula de status de BE-08 em `TASK.md`): `OBJECT_STORAGE_ENDPOINT`
+   sobrescrevia silenciosamente o destino real do tráfego S3 e tinha
+   prioridade sobre `region`, contornando a validação de região — confirmado
+   nesta validação que a correção (`assertEndpointOverrideAllowed`, bloqueia
+   `OBJECT_STORAGE_ENDPOINT` quando `NODE_ENV` é `production`/`staging`)
+   está presente e testada (`object-storage-config.spec.ts`). Nenhuma
+   variável de ambiente desativa essa checagem, confirmado por leitura do
+   código.
+3. **Abstração usável por tarefas futuras** (BE-07, BE-21, BE-22, BE-23):
+   `getReadSignedUrl(key, expirySecondsOverride?)` e `putObject(key, body,
+   contentType?)` são assinaturas simples e agnósticas de convenção de nome
+   de chave — corretamente deferida ao chamador, sem lógica de negócio
+   prematura. Barrel público não exporta o cliente S3 bruto nem a config
+   resolvida, mesma disciplina de `REDIS_CONNECTION`/`KYSELY_CONNECTION`,
+   confirmada por teste e2e dedicado.
+4. **Requisito não funcional (sem hardcode)**: bucket, região, endpoint,
+   credenciais e TTL default — todos via env, nenhum valor hardcoded;
+   `parseStrictBoolean`/`parsePositiveInt` compartilhados com BE-05
+   (`src/config/parse-env.ts`), evitando divergência de validação entre os
+   dois módulos de infraestrutura.
+
+**Achado desta validação (não presente no relato do Backend)**: registrado
+como `QA-DEBT-016` (Seção 2, severidade Baixa, não bloqueante) — o teste e2e
+de expiração de URL (`object-storage-infrastructure.e2e-spec.ts`) não afirma
+"GET depois do prazo falha" contra o LocalStack, por uma limitação conhecida
+e documentada do próprio LocalStack (não enforce real de `X-Amz-Expires`).
+A aplicação delega a garantia de expiração real inteiramente à implementação
+SigV4 do SDK oficial da AWS (mesma biblioteca usada em produção) — decisão de
+escopo razoável, mas o comportamento de expiração real nunca foi observado
+empiricamente neste projeto contra um S3 de verdade. Recomendação: validação
+manual pontual contra o bucket real de `staging` antes do primeiro tráfego
+real de laudo/imagem (a partir do fechamento do Lote 5) — não bloqueia o
+fechamento deste lote, já que RF-06/RF-07/RF-08 (consumidores reais desta
+tarefa) ainda nem começaram.
+
+**Veredito**: **Aprovado com ressalvas** (`QA-DEBT-016`, Baixa, não
+bloqueante).
+
+### 4.6 FE-01 a FE-04 (reconfirmação) e nota de escopo sobre FE-05/FE-06/FE-07
+
+**Veredito de cada tarefa**: mantido em relação à validação original —
+FE-01 **Aprovado com ressalvas** (`QA-DEBT-001`, `QA-DEBT-002`, ambos
+abertos, sem violação de prazo — BE-32/Lote 9 ainda não iniciado), FE-02
+**Aprovado com ressalvas** (`QA-DEBT-003`, `QA-DEBT-004`, `QA-DEBT-005`,
+abertos), FE-03 **Aprovado com ressalvas** (`QA-DEBT-007`, aberto, prazo
+ligado a BE-18/Lote 4, ainda `A Fazer`), FE-04 **Aprovado com ressalvas**
+(`QA-DEBT-008`, `QA-DEBT-009`, abertos). Detalhamento original nas Seções
+1.1, 1.3, 1.5, 1.7 — não refeito aqui; reconfirmado nesta validação que os
+181 testes do design system (Seção 4.1) continuam passando sem alteração de
+comportamento desde a validação individual de cada tarefa, e que nenhum dos
+achados originais foi silenciosamente corrigido ou re-emergiu de forma
+diferente.
+
+**Verificação transversal de acessibilidade (WCAG 2.1 AA) pedida para o
+fechamento deste lote**: revisão dirigida a lacunas *entre* componentes (não
+dentro de um componente isolado, já coberto pelas validações individuais).
+Nenhuma lacuna transversal nova encontrada: rótulo programático, estado nunca
+só por cor, `aria-live`, alvo de toque ≥44px e indicador de foco visível são
+tratados de forma consistente em todos os componentes de FE-02/FE-03 (mesmo
+padrão repetido, não uma implementação divergente por componente); `FormLayout`
+(FE-04) é o único ponto de composição de layout de formulário e não introduz
+nenhuma exceção ao padrão de coluna única. Os únicos gaps de acessibilidade
+conhecidos permanecem os já registrados como débito (`QA-DEBT-004`, mensagem
+longa sem teste de quebra de linha; `QA-DEBT-009`, perda de foco ao cruzar
+breakpoint) — nenhum novo.
+
+**Nota de escopo (não é achado de Lote 1, é contexto para leitura correta
+deste relatório)**: a suíte completa do frontend (Seção 4.1) mostra 279
+testes, não 181 — a diferença (98 testes) vem de FE-05, FE-06 e FE-07
+(Lote 4), já implementadas e marcadas `Concluído` em `TASK.md`, com validação
+individual própria já registrada neste relatório (Seções 1.8 a 1.10, antes da
+convenção de lote). Isso é esperado e consistente com a diretriz de
+paralelização de `TASK.md` §4.2 (ex-4.1) — Frontend pôde avançar em tarefas de
+outro lote em paralelo, já que FE-05/06/07 não têm dependência de nenhuma
+tarefa ainda em aberto do Lote 1. Não afeta o fechamento do Lote 1 (todas as
+suas 8 tarefas, e só elas, foram usadas para o veredito desta Seção 4) e não
+é revalidado aqui — permanece como está registrado nas Seções 1.8-1.10, a
+ser formalmente incorporado quando o Lote 4 fechar por completo.
+
+### 4.7 Testes de integração cruzada (Backend ↔ tarefas futuras)
+
+Não há, dentro do próprio Lote 1, nenhuma dependência cruzada Backend↔Frontend
+executável hoje (FE-01 consome `BRANDING_CONFIG` de um mock local, não de
+BE-32 — BE-32 é Lote 9, ainda não iniciado; nenhuma tela do Lote 1 chama
+nenhum endpoint de BE-01/02/05/08 diretamente, já que nenhum deles expõe rota
+HTTP de negócio). A integração relevante a este lote é **Backend
+infraestrutura → Backend domínio futuro** (BE-05/BE-08 consumidos por BE-07,
+BE-14, BE-21 a BE-24) — verificada por inspeção de contrato/assinatura
+(Seções 4.4 e 4.5 acima), já que os consumidores reais ainda não existem para
+um teste ponta a ponta de verdade. Nenhuma incoerência de contrato
+encontrada.
+
+### 4.8 Veredito do Lote 1
+
+**Lote 1 — Fundação de Infraestrutura e Design System: Aprovado com
+ressalvas.**
+
+- **Nenhum bug de severidade Alta/Crítica em aberto** em nenhuma das 8
+  tarefas do lote — todos os itens do checklist de Definition of Done
+  (`AGENT-TEMPLATE.md` deste agente) aplicáveis a este lote estão
+  satisfeitos.
+- 6 débitos de severidade Baixa/Média seguem abertos, todos já registrados
+  antes desta validação exceto um novo (`QA-DEBT-016`, BE-08): `QA-DEBT-001`,
+  `QA-DEBT-002` (FE-01), `QA-DEBT-003`, `QA-DEBT-004`, `QA-DEBT-005` (FE-02),
+  `QA-DEBT-006` (BE-02), `QA-DEBT-007` (FE-03), `QA-DEBT-008`, `QA-DEBT-009`
+  (FE-04), `QA-DEBT-016` (BE-08, novo) — todos com prazo associado a uma
+  tarefa/marco futuro específico (Seção 2), nenhum com prazo vencido nesta
+  data.
+- Nenhuma tarefa do lote precisou ser revertida de `Concluída` para `Em
+  andamento` em `TASK.md` — nenhuma reprovação nesta validação.
+- Nenhum padrão recorrente que aponte problema de decomposição/diretriz foi
+  identificado nesta validação (os achados são específicos de cada tarefa,
+  com causas distintas) — nenhum escalonamento ao Tech Lead via
+  `BLOCKERS.md`.
+- **BE-05 e BE-08, sem consumidor real ainda dentro do próprio lote, expõem
+  abstrações (`QueueRegistryService.getQueue`, `ObjectStorageService.
+  getReadSignedUrl`, `buildSessionRedisKey`) coerentes e diretamente
+  utilizáveis pelas tarefas futuras que delas dependem** (BE-07, BE-14,
+  BE-21 a BE-24), sem necessidade de refatoração — verificado por inspeção
+  de contrato, não por execução ponta a ponta (consumidores reais ainda não
+  existem).
+- Requisito não funcional crítico deste lote — **nenhuma URL pública
+  permanente de Object Storage** (ADR-010/GUARDRAILS.md itens 23-24) —
+  confirmado estrutural e empiricamente, sem exceção.
+
+**Liberação**: as tarefas do Lote 2 e do Lote 3, que dependem do Lote 1
+(`TASK.md` §4.1.2), estão liberadas para começar do ponto de vista de QA —
+nenhum bloqueio originado nesta validação. BE-03/BE-04 (Lote 3) já em
+andamento/concluídas antes mesmo deste fechamento formal do Lote 1 não são
+afetadas por esta validação (fora de escopo, ver introdução desta Seção 4).
+
+---
+
+## 5. Validação por Lote — Lote 3: Segurança de Multi-tenancy (Guard de Aplicação + RLS + Teste de Vazamento)
+
+**Lote** (`TASK.md` §4.1.1): BE-03, BE-04 (Backend) — 10 dp, Fase 1. Sem
+tarefas de Frontend neste lote. Gatilho de validação: as 2 tarefas do lote
+marcadas `Concluído` em `TASK.md` (confirmado por leitura direta da Seção
+3.1 nesta data — BE-03 linha 224, BE-04 linha 225).
+
+**Nota de processo (contexto, não achado deste lote)**: BE-03 e BE-04 têm
+histórico de validação individual completo, produzido **antes** da convenção
+de fechamento por lote (`EXECUTION-FLOW.md`, revisão de 2026-09-03) —
+Seções 1.6, 1.6.1, 1.6.2 (BE-03: `QA-BUG-001` e `QA-BUG-002`, ambos
+severidade Alta, corrigidos e revalidados empiricamente em 3 rodadas; BE-03
+aprovado com ressalvas na rodada 3) e Seção 1.11 (BE-04: aprovado sem
+ressalvas, condição do Gate 2 do CTO cumprida por implementação verificada).
+Essa validação individual **não é refeita aqui** — é tratada como dada,
+conforme instrução. O objeto desta Seção 5 é exclusivamente a camada de
+lote: confirmar, contra o estado **atual** do repositório (não um snapshot
+antigo), que nenhuma regressão foi introduzida por trabalho posterior (Lote
+1: BE-05, BE-08, mais o próprio fechamento formal do Lote 1), que o
+fechamento formal por lote — que nunca aconteceu para BE-03/BE-04, registrado
+como pendência de rastreabilidade em `LOTE-LOG.md` "Observação registrada"
+— agora ocorre, e que o débito herdado (`QA-DEBT-012`) permanece
+corretamente fechado.
+
+### 5.1 Execução da suíte completa (reexecutada de forma independente, 2026-09-03)
+
+| Comando | Escopo | Resultado |
+|---|---|---|
+| `npm run lint` (`backend/`) | `lint:oxlint` + `lint:boundaries` | Limpo |
+| `npm run build` (`backend/`) | `nest build` | Limpo |
+| `npm run test` (`backend/`) | Unit/integração (vitest) | **119/119 passando** — bate exatamente com o número já confirmado no fechamento do Lote 1 (Seção 4.1); nenhum teste unitário novo/removido desde então que afete BE-03/BE-04 |
+| `npm run test:e2e` (`backend/`) | E2E via testcontainers (Postgres real) | **245/245 passando** — mesma contagem do fechamento do Lote 1; inclui as suítes de BE-02/BE-03 (`tenant-guard-and-rls.e2e-spec.ts`) e BE-04 (`tenant-cross-leak-exhaustive.e2e-spec.ts`, 158 destes 245) |
+| `npm run test:tenant-isolation` (`backend/`) | Script dedicado — só `tenant-cross-leak-exhaustive.e2e-spec.ts` (BE-04) | **158/158 passando**, isolado do resto da suíte e2e — bate exatamente com a contagem original (13 tabelas × 4 operações × 3 camadas + 2 testes de `QA-DEBT-012`) |
+
+Docker disponível no ambiente de validação — testcontainers (PostgreSQL real)
+executado de ponta a ponta, sem mock substituindo infraestrutura real. Nenhuma
+divergência entre o que `TASK.md`/`QA-REPORT.md` (Seções 1.6.2/1.11) relatam
+e o que a suíte real produz agora, confirmando ausência de regressão
+introduzida por BE-05, BE-08 ou qualquer trabalho do Lote 1 sobre a camada de
+acesso a dado.
+
+### 5.2 BE-03 — Guard de aplicação obrigatório de `tenant_id` + políticas RLS por tabela (confirmação de não regressão)
+
+**Veredito da tarefa**: **mantido — Aprovado com ressalvas** (`QA-DEBT-012`,
+histórico — ver nota abaixo sobre o status atual desse débito). Detalhamento
+original da aprovação, incluindo as três rodadas de revalidação empírica de
+`QA-BUG-001`/`QA-BUG-002`, nas Seções 1.6-1.6.2 — não repetido aqui.
+
+Verificação de não regressão feita por leitura direta do código atual (não
+apenas confiança no relato histórico):
+
+- `backend/src/database/tenant-scoped.repository.ts` lido linha a linha
+  nesta validação: `#db` e `#runOnTable` continuam campos/métodos privados
+  **nativos** do JavaScript (não `private` do TypeScript) — a correção de
+  `QA-BUG-001` está presente e intacta no estado atual do repositório, não
+  apenas num commit passado.
+- `backend/src/database/index.ts` (barrel público) lido nesta validação:
+  `KYSELY_CONNECTION` continua **não** reexportado — só `DatabaseModule`,
+  `provideTenantScopedRepository`, `TenantScopedRepository`, `TenantContext`/
+  `MissingTenantContextError`, `DOMAIN_TABLES`/`TENANT_TABLE`. A correção de
+  `QA-BUG-002` está presente e intacta.
+- `git log --oneline -- backend/src/database backend/test/database` confirma
+  um único commit tocando esses caminhos desde o início do projeto — nenhuma
+  alteração posterior às três rodadas de revalidação já registradas poderia
+  ter reintroduzido qualquer um dos dois vetores. Consistente com a suíte
+  100% verde acima.
+
+**Veredito confirmado**: nenhum bug de severidade Alta/Crítica em aberto.
+
+### 5.3 BE-04 — Teste automatizado de vazamento cruzado entre tenants (confirmação de não regressão)
+
+**Veredito da tarefa**: **mantido — Aprovado**, sem ressalvas (Seção 1.11).
+
+Verificação de não regressão:
+
+- `backend/test/database/tenant-cross-leak-exhaustive.e2e-spec.ts` lido
+  nesta validação: as 13 tabelas de `DOMAIN_TABLES`, as 4 operações
+  (`findAll`/`findById`/`updateById`/`deleteById`) e as 3 camadas (guard+RLS,
+  guard sozinho via superusuário, RLS sozinha via `pg.Client` cru)
+  continuam presentes e inalteradas — 158 testes, mesma contagem desde a
+  implementação original.
+- `.github/workflows/backend-ci.yml` lido nesta validação: job
+  `tenant-isolation-test` continua bloqueante ("Teste de vazamento cruzado
+  entre tenants (BLOQUEANTE — Gate 2 CTO)"), aponta para
+  `npm run test:tenant-isolation`, é pré-requisito (`needs`) de
+  `lint-and-test` e é ele próprio pré-requisito de `build-and-push` — a
+  condição não negociável do Gate 2 do CTO (`TASK.md` §1.3, "nenhum PR que
+  toque a camada de acesso a dado é aprovado/mergeado sem o teste... passando
+  no CI") continua estruturalmente cumprida no estado atual do pipeline, não
+  apenas declarada em texto.
+
+**Veredito confirmado**: nenhum bug de severidade Alta/Crítica em aberto.
+
+### 5.4 Teste de integração cruzada entre as tarefas do lote (BE-04 exercita a implementação atual de BE-03, não uma versão anterior)
+
+Verificação dirigida, pedida explicitamente para este fechamento de lote: BE-04
+depende estruturalmente do guard/RLS que BE-03 implementa — a suíte de BE-04
+precisa exercitar o `TenantScopedRepository` **atual**, já com as duas
+correções de `QA-BUG-001`/`QA-BUG-002` aplicadas, não uma cópia própria ou uma
+versão anterior à correção.
+
+Confirmado por leitura direta de
+`tenant-cross-leak-exhaustive.e2e-spec.ts` (linhas 15-19 e 258): o arquivo
+importa `TenantScopedRepository` diretamente de
+`../../src/database/tenant-scoped.repository.js` (o arquivo de produção, não
+um fixture duplicado) e declara `class DomainTableTestRepository<Table>
+extends TenantScopedRepository<Table>` — ou seja, toda a suíte de 158 testes
+roda **sobre a classe real de BE-03**, com `#db`/`#runOnTable` privados
+nativos e sem `KYSELY_CONNECTION` exposto pelo barrel. Não há absorção de uma
+cópia estática do comportamento de BE-03 dentro de BE-04 que pudesse
+mascarar uma regressão futura em `tenant-scoped.repository.ts` — qualquer
+alteração futura na classe real seria automaticamente exercitada pela
+suíte de BE-04 na próxima execução. O bloco `[QA-DEBT-012]` (linhas 577+)
+também importa `kysely-connection.ts` e o barrel diretamente, exercitando a
+mesma superfície real de `src/database/` usada pela correção de
+`QA-BUG-002`, não uma reimplementação isolada. Nenhuma incoerência de
+contrato entre as duas tarefas encontrada.
+
+### 5.5 Débito técnico herdado (`QA-DEBT-012`) — status confirmado
+
+`QA-DEBT-012` (BE-03, severidade Baixa — natureza CI-only, não
+estrutural/runtime, da defesa contra deep-import de `KYSELY_CONNECTION` por
+fora do barrel) já está registrado como **Fechado** no Log de Bugs e Débitos
+(Seção 2) desde a validação de BE-04 (Seção 1.11) — BE-04 incorporou o caso
+de regressão permanente recomendado
+(`[QA-DEBT-012]` em `tenant-cross-leak-exhaustive.e2e-spec.ts`). Reconfirmado
+nesta validação de lote: o bloco de teste continua presente (Seção 5.4
+acima) e passando (dentro dos 158/158 de `test:tenant-isolation`, Seção
+5.1). **Nenhum débito de severidade Baixa/Média aberto neste lote** — não há
+dono/prazo pendente a reportar para BE-03/BE-04.
+
+### 5.6 Veredito do Lote 3
+
+**Lote 3 — Segurança de Multi-tenancy (Guard de Aplicação + RLS + Teste de
+Vazamento): Aprovado.**
+
+- **Nenhum bug de severidade Alta/Crítica em aberto** em nenhuma das 2
+  tarefas do lote — os dois únicos bugs Alta encontrados neste lote
+  (`QA-BUG-001`, `QA-BUG-002`, ambos em BE-03) foram corrigidos e revalidados
+  empiricamente em rodadas anteriores (Seções 1.6.1/1.6.2), e reconfirmados
+  sem regressão nesta validação (Seções 5.2/5.4).
+- **Nenhum débito de severidade Baixa/Média aberto** — `QA-DEBT-012`, o único
+  débito herdado deste lote, já está fechado com cobertura de regressão
+  permanente (Seção 5.5).
+- Nenhuma tarefa do lote precisou ser revertida de `Concluída` para `Em
+  andamento` em `TASK.md` nesta validação — nenhuma reprovação.
+- Teste de integração cruzada entre as duas tarefas do lote (BE-04 exercita
+  estruturalmente a implementação atual de BE-03) executado e passando
+  (Seção 5.4) — não é apenas "as duas tarefas passam separadamente", é
+  confirmado que uma depende genuinamente da outra no estado atual do
+  código.
+- Requisito não funcional de maior severidade deste projeto (`GUARDRAILS.md`
+  §A / `TASK.md` §1.3, isolamento multi-tenant) validado de forma sistemática
+  e exaustiva, não amostral — 3 camadas de defesa (guard de aplicação, RLS,
+  privilégio de role de runtime) confirmadas independentes entre si.
+- Condição não negociável do Gate 2 do CTO (teste automatizado de vazamento
+  cruzado, BE-04, bloqueante no CI) confirmada estruturalmente cumprida no
+  pipeline atual (Seção 5.3), não apenas declarada.
+- Nenhum padrão recorrente que aponte problema de decomposição/diretriz foi
+  identificado nesta validação — os dois bugs de BE-03 já foram tratados, nas
+  rodadas originais, como achados de execução pontual desta mesma tarefa, não
+  como padrão entre tarefas distintas; nenhum fato novo nesta validação de
+  lote muda essa leitura. Nenhum escalonamento ao Tech Lead via
+  `BLOCKERS.md`.
+
+**Liberação**: com este fechamento formal, a "Observação registrada" de
+`LOTE-LOG.md` (Lote 1) sobre BE-03/BE-04 estarem pendentes de fechamento
+formal pela convenção de lote está resolvida. Do ponto de vista de QA, **a
+condição de maior severidade do projeto (`GUARDRAILS.md` §A, isolamento
+multi-tenant) está agora validada tanto tarefa a tarefa quanto como lote
+fechado**, liberando qualquer tarefa de módulo de domínio (BE-10+) que
+dependa de `TenantScopedRepository`/RLS (`TASK.md` §4.4, "BE-03, BE-04 |
+Qualquer PR que acesse dado de domínio") para prosseguir sem bloqueio
+originado nesta validação — sujeito à liberação independente de DevSecOps
+(auditoria completa do Lote 3 ainda não realizada; `SECURITY-REVIEW.md`
+registra BE-03/BE-04 como fora de escopo da auditoria do Lote 1) e do Tech
+Lead (checklist de integridade da decomposição, `LOTE-LOG.md`).

@@ -210,18 +210,26 @@ module "core_service" {
     NODE_ENV                    = "production"
     APP_PORT                     = "3000"
     OBJECT_STORAGE_BUCKET        = module.object_storage.bucket_name
+    # ElastiCache exige TLS em transito (infra/modules/cache/main.tf,
+    # transit_encryption_enabled = true) -- REDIS_TLS nao e segredo, so
+    # precisa bater com o parametro real do Redis (SEC-DEBT-002).
+    REDIS_TLS                    = "true"
     INTEGRATION_GATEWAY_HOST    = "integration-gateway.internal.portalmed-production.local"
     IMAGING_GATEWAY_HOST        = "imaging-gateway.internal.portalmed-production.local"
   }
 
+  # SEC-DEBT-002 (SECURITY-REVIEW.md) -- ver mesmo racional em
+  # infra/environments/staging/main.tf (paridade staging/producao, so
+  # parametro de dimensionamento difere, nunca a forma de wiring de secret).
   secrets = [
-    { name = "DATABASE_CREDENTIALS", value_from = module.secrets.database_credentials_arn },
-    { name = "REDIS_AUTH", value_from = module.secrets.redis_auth_arn },
+    { name = "APP_DATABASE_URL", value_from = module.secrets.app_database_url_arn },
+    { name = "REDIS_HOST", value_from = "${module.secrets.redis_auth_arn}:primary_endpoint::" },
+    { name = "REDIS_PASSWORD", value_from = "${module.secrets.redis_auth_arn}:auth_token::" },
     { name = "INTERNAL_SERVICE_API_KEY", value_from = module.secrets.internal_service_api_key_arn },
     { name = "EMAIL_PROVIDER_API_KEY", value_from = module.secrets.email_provider_api_key_arn },
   ]
   secret_arns = [
-    module.secrets.database_credentials_arn,
+    module.secrets.app_database_url_arn,
     module.secrets.redis_auth_arn,
     module.secrets.internal_service_api_key_arn,
     module.secrets.email_provider_api_key_arn,

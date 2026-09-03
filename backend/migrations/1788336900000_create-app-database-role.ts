@@ -2,6 +2,29 @@ import type { MigrationBuilder } from 'node-pg-migrate';
 import { DOMAIN_TABLES, TENANT_TABLE } from '../src/database/domain-tables.js';
 
 /**
+ * `audit_events`/`consent_records` são append-only por design
+ * (`GUARDRAILS.md` regras D.18/F.28, ADR-009, RN-08/RN-02 — LGPD) — a role
+ * de runtime NUNCA pode receber `GRANT UPDATE`/`GRANT DELETE` nessas duas
+ * tabelas, só `SELECT`/`INSERT`. Todas as demais tabelas de `DOMAIN_TABLES`
+ * continuam com o privilégio completo (`SELECT`/`INSERT`/`UPDATE`/`DELETE`).
+ *
+ * **Correção de `SEC-BUG-001` (`SECURITY-REVIEW.md` "Lote 3"/`BLOCKERS.md`
+ * Bloqueio 004, 2026-09-03)**: a versão original desta migration concedia o
+ * privilégio completo a `[...DOMAIN_TABLES]` sem excluir estas duas tabelas,
+ * deferindo a restrição para BE-19/BE-29 sem seguir o processo de exceção de
+ * `GUARDRAILS.md` regras 37-39 — achado de severidade Alta do DevSecOps,
+ * sem camada compensatória ativa (a política RLS restringe *quais linhas*,
+ * nunca *o tipo de operação*). A restrição de privilégio não depende da
+ * lógica de negócio de hash chain (BE-29) nem do fluxo de consentimento
+ * (BE-19) — só precisa acompanhar a migration que já concede privilégio à
+ * role (esta, BE-03).
+ */
+const APPEND_ONLY_TABLES = ['audit_events', 'consent_records'] as const;
+const FULL_PRIVILEGE_DOMAIN_TABLES = DOMAIN_TABLES.filter(
+  (table) => !(APPEND_ONLY_TABLES as readonly string[]).includes(table),
+);
+
+/**
  * BE-03 (`TASK.md`) — cria a role de banco usada pela aplicação em runtime
  * (`portalmed_app`), distinta da role de migration/admin (`DATABASE_URL`,
  * usada só por `node-pg-migrate`/DDL). Duas razões:
@@ -55,22 +78,31 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
     roles: APP_ROLE,
   });
 
-  // Toda tabela de domínio: SELECT/INSERT/UPDATE/DELETE. Exceção de
-  // ADR-009/GUARDRAILS.md item 18 (audit_events nunca recebe GRANT
-  // UPDATE/DELETE) é responsabilidade de BE-29 (tarefa dedicada de
-  // auditoria, que já vai criar a lógica de hash chain) — mesmo padrão de
-  // deferimento explícito já usado por BE-02 (`backend/docs/migrations.md`)
-  // para não implementar lógica de negócio de auditoria fora do lugar.
+  // Tabelas de domínio "normais": SELECT/INSERT/UPDATE/DELETE.
   pgm.grantOnTables({
-    tables: [...DOMAIN_TABLES],
+    tables: [...FULL_PRIVILEGE_DOMAIN_TABLES],
     privileges: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
+    roles: APP_ROLE,
+  });
+
+  // audit_events/consent_records: append-only por design (GUARDRAILS.md
+  // D.18/F.28, ADR-009) — só SELECT/INSERT, nunca UPDATE/DELETE. Ver
+  // comentário de `APPEND_ONLY_TABLES` acima (correção de `SEC-BUG-001`).
+  pgm.grantOnTables({
+    tables: [...APPEND_ONLY_TABLES],
+    privileges: ['SELECT', 'INSERT'],
     roles: APP_ROLE,
   });
 }
 
 export async function down(pgm: MigrationBuilder): Promise<void> {
   pgm.revokeOnTables({
-    tables: [...DOMAIN_TABLES],
+    tables: [...APPEND_ONLY_TABLES],
+    privileges: ['SELECT', 'INSERT'],
+    roles: APP_ROLE,
+  });
+  pgm.revokeOnTables({
+    tables: [...FULL_PRIVILEGE_DOMAIN_TABLES],
     privileges: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
     roles: APP_ROLE,
   });

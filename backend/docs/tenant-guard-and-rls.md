@@ -175,12 +175,24 @@ e sem privilégio de DDL:
   `APP_DATABASE_URL` (role `portalmed_app`) — nunca `DATABASE_URL` (role de
   migration/admin, só usada por `node-pg-migrate`). Ver `.env.example`.
 - Privilégio de `portalmed_app`: `SELECT` em `tenants` (leitura, sem
-  onboarding de hospital em runtime), `SELECT/INSERT/UPDATE/DELETE` em toda
-  tabela de `DOMAIN_TABLES` — **exceto** a restrição de `audit_events`
-  (nunca `GRANT UPDATE/DELETE`, ADR-009/GUARDRAILS.md item 18), que fica
-  para BE-29 (tarefa dedicada de auditoria/hash chain), mesmo padrão de
-  deferimento explícito já usado por BE-02 para não implementar lógica de
-  negócio fora do lugar.
+  onboarding de hospital em runtime); `SELECT/INSERT/UPDATE/DELETE` nas 11
+  tabelas "normais" de `DOMAIN_TABLES`; `SELECT/INSERT` (nunca
+  `UPDATE`/`DELETE`) em `audit_events`/`consent_records` — restrição
+  append-only exigida por ADR-009/`GUARDRAILS.md` itens 18/28, em vigor
+  desde a própria migration que concede o privilégio à role
+  (`create-app-database-role.ts`), não deferida para BE-19/BE-29. **Correção
+  de `SEC-BUG-001` (`SECURITY-REVIEW.md` "Lote 3"/`BLOCKERS.md` Bloqueio
+  004, 2026-09-03)**: a versão original desta migration concedia o
+  privilégio completo (incluindo `UPDATE`/`DELETE`) também a estas duas
+  tabelas, deferindo a restrição para BE-19/BE-29 sem seguir o processo de
+  exceção de `GUARDRAILS.md` regras 37-39 e sem nenhuma camada compensatória
+  ativa (a política RLS só restringe *quais linhas* são visíveis/alteráveis
+  por tenant, nunca *o tipo de operação*) — achado de severidade Alta do
+  DevSecOps, corrigido nesta migration; hash chain (`hash_evento_anterior`)
+  e a lógica de negócio de consentimento continuam escopo de BE-29/BE-19,
+  só a restrição de privilégio de banco foi antecipada. Teste de regressão
+  permanente em `test/database/tenant-guard-and-rls.e2e-spec.ts`
+  (`[SEC-BUG-001]`), consultando `has_table_privilege` diretamente.
 
 ## Como os testes validam as duas camadas
 
@@ -227,6 +239,17 @@ exige banco real, não pode ser mockada"):
    resolve o repositório concreto via DI real, e o guard de aplicação
    (`MissingTenantContextError`) continua ativo mesmo através do novo
    caminho de registro.
+6. **`[SEC-BUG-001]` — privilégio de banco da role `portalmed_app` em
+   `audit_events`/`consent_records`**: consulta direta a
+   `has_table_privilege('portalmed_app', '<tabela>', 'UPDATE'/'DELETE')`
+   confirma `false` para as duas tabelas append-only (e que `INSERT`/
+   `UPDATE`/`DELETE` real via `pg.Client` cru, role `portalmed_app`,
+   resultam em erro de permissão do Postgres — `SELECT`/`INSERT` continuam
+   funcionando), e o mesmo teste confirma `has_table_privilege(...,
+   'UPDATE'/'DELETE') = true` para as demais 11 tabelas de `DOMAIN_TABLES`
+   (nenhuma regressão de escopo oposto). Regressão permanente para que uma
+   futura reescrita desta migration (por BE-19/BE-29) não reintroduza o
+   privilégio por descuido.
 
 `src/database/tenant-context.spec.ts` (unitário, sem banco) cobre só o
 mecanismo puro de `AsyncLocalStorage` (isolamento entre execuções

@@ -1,17 +1,25 @@
 # DEPLOY.md — Portal de Resultados de Exames (Aplicação White Label para Hospitais)
 
 **Dono**: DevOps
-**Data**: 2026-09-02
-**Status**: **Em andamento — fase de preparação (IaC + CI/CD).** Nenhum deploy
-real foi executado ainda. `terraform apply` não foi rodado contra nenhuma conta
-AWS. Esta entrada registra o que foi provisionado **como código** e como o
-pipeline foi desenhado, conforme `infrastructure-as-code-provisioning` e
-`cicd-pipeline-configuration`, que rodam em paralelo à implementação, assim que
-o `SDD.md` foi aprovado no Gate 2 — sem esperar nenhum build terminar.
+**Data**: 2026-09-02 (criação) — **atualizado em 2026-09-03** (tentativa real
+de `deployment-execution` em staging, Lote 1)
+**Status**: **`SEC-DEBT-002` resolvido em código. Deploy real em staging
+bloqueado por limitação de ambiente de execução (sem acesso a conta AWS
+real) — não é pausa obrigatória, não é achado de segurança, não é
+reprovação de QA/DevSecOps.** Ver Seção 8 para o registro completo desta
+tentativa. Esta entrada continua registrando o que foi provisionado **como
+código** e como o pipeline foi desenhado, conforme
+`infrastructure-as-code-provisioning` e `cicd-pipeline-configuration`, que
+rodam em paralelo à implementação, assim que o `SDD.md` foi aprovado no
+Gate 2 — sem esperar nenhum build terminar.
 **Input**: `SDD.md` (final, §3 stack, §6 riscos/escalabilidade, §7.5 superfície
 de exposição) + `.md/adr/006-...md` + `.md/adr/010-...md` + `GUARDRAILS.md`
 (39 regras, Seções A, E, I aplicáveis diretamente a esta entrega) + `TASK.md`
-(Seção 3.1, BE-01 a BE-09 — infraestrutura de base do Backend)
+(Seção 3.1, BE-01 a BE-09 — infraestrutura de base do Backend) + (a partir de
+2026-09-03) `QA-REPORT.md` §4.8 (Aprovado com ressalvas, Lote 1),
+`SECURITY-REVIEW.md` "Lote 1" (Aprovado com débito registrado) e
+`LOTE-LOG.md` (Aprovado com ressalvas, Tech Lead) — dupla aprovação +
+integridade de decomposição que libera `deployment-execution` para o Lote 1.
 
 ---
 
@@ -133,6 +141,64 @@ manual única) — conforme `cicd-iac-foundations` e critério de aceite de
   privada, criptografia em repouso, backup). Registrado explicitamente em
   `infra/README.md` para não gerar falsa impressão de que RLS já está
   coberto pela infraestrutura.
+
+### 3.1.1 Correção de `SEC-DEBT-002` (wiring de secrets, 2026-09-03)
+
+`SECURITY-REVIEW.md` "Lote 1" registrou `SEC-DEBT-002`: a task definition do
+ECS injetava os segredos de banco/Redis como um único blob JSON
+(`DATABASE_CREDENTIALS`, `REDIS_AUTH`), mas o código do Backend
+(`backend/src/redis/redis-config.ts` — `REDIS_HOST`/`REDIS_PORT`/
+`REDIS_PASSWORD`/`REDIS_TLS`; `backend/src/database/database.module.ts` —
+`APP_DATABASE_URL` como connection string única) sempre esperou variáveis de
+ambiente planas. Prazo registrado: "antes do primeiro deploy real em
+staging" — exatamente esta entrega. Corrigido **em código**, sem reintroduzir
+nenhum segredo em texto plano:
+
+- **Redis**: `infra/environments/{staging,production}/main.tf` passou a
+  referenciar cada chave do secret JSON (`redis_auth`, inalterado em
+  `infra/modules/secrets/main.tf`) individualmente, via a sintaxe nativa do
+  ECS de seleção de chave dentro do secret (`"<secret-arn>:<json-key>::"`) —
+  `REDIS_HOST` ← chave `primary_endpoint`, `REDIS_PASSWORD` ← chave
+  `auth_token`. Nenhum entrypoint de parse, nenhum script adicional.
+  `REDIS_TLS = "true"` passou a ser setado como variável de ambiente comum
+  (não é segredo) em ambos os ambientes, para bater com
+  `transit_encryption_enabled = true` do `infra/modules/cache/main.tf` — sem
+  essa correção a aplicação tentaria conectar sem TLS a um Redis que só
+  aceita TLS, e falharia silenciosamente para `tls: false` (mesmo anti-padrão
+  que a revisão pós-implementação de BE-08 já havia corrigido para
+  `OBJECT_STORAGE_FORCE_PATH_STYLE`).
+- **Database**: uma connection string não pode ser remontada por seleção de
+  chave JSON isolada (não existe concatenação no `valueFrom` do ECS), então
+  `infra/modules/secrets/main.tf` passou a gerar uma senha dedicada para a
+  role de runtime `portalmed_app` (`random_password.app_db_role`, sem
+  caracteres especiais, para nunca exigir URL-encoding manual) e a montar o
+  próprio valor de `APP_DATABASE_URL` como um novo secret
+  (`aws_secretsmanager_secret.app_database_url`) — role de menor privilégio
+  (`backend/migrations/1788336900000_create-app-database-role.ts`), nunca a
+  role master. Um segundo secret (`migration_database_url`) foi criado com a
+  connection string da role master, para uso exclusivo de um futuro job de
+  migration (equivalente ao `DATABASE_URL` de `backend/.env.example`) — nunca
+  injetado na task definition da aplicação em runtime. O secret original
+  `database_credentials` (JSON com host/usuário/senha separados) foi mantido
+  sem alteração para acesso operacional/break-glass via console, mas **saiu**
+  da lista `secrets`/`secret_arns` da task definition do serviço `core` (não
+  é mais lido pela aplicação).
+- Nenhum `.tf`/`.tfvars` deste repositório ganhou valor sensível literal —
+  toda senha nova continua gerada por `random_password` e vive só no Secrets
+  Manager, exatamente como o restante do módulo já fazia.
+
+**Gap relacionado, descoberto durante esta correção, registrado para
+transparência (não é o escopo de `SEC-DEBT-002`, não bloqueia esta entrega)**:
+não existe ainda, em nenhum workflow (`backend-ci.yml`) ou task ECS dedicada,
+um passo que execute `node-pg-migrate` (criação de schema + a migration
+`create-app-database-role`) contra o banco real de um ambiente. O secret
+`migration_database_url` e a senha de `portalmed_app`
+(`app_db_role_password_arn`) já estão preparados para alimentar esse passo
+quando ele for desenhado, mas a orquestração em si (quando/como rodar
+migration antes do primeiro tráfego real) ainda não existe. Como nenhum
+`terraform apply` real ocorreu nesta entrega (Seção 8), este gap não é
+observável no ambiente real ainda — fica registrado aqui para não represar
+essa lacuna quando uma conta AWS real existir.
 
 ### 3.2 Paridade staging/produção
 
@@ -286,8 +352,15 @@ contra.
 
 ## 7. Pré-requisitos operacionais antes do primeiro `terraform apply` real
 
-Nenhum destes itens foi executado ainda — são condição de entrada para
-`deployment-execution`, registrados aqui para rastreabilidade:
+Reverificados ativamente em 2026-09-03 (tentativa real de
+`deployment-execution` do Lote 1) — resultado da verificação genuína de
+acesso a conta AWS real neste ambiente de execução: **nenhuma credencial AWS
+configurada** (`aws sts get-caller-identity` → binário `aws` inexistente
+neste ambiente; nenhuma variável `AWS_*` no processo; nenhum `~/.aws/`).
+Binário `terraform` também não está disponível neste ambiente. Nenhum destes
+itens pôde ser executado por essa razão — permanecem como condição de
+entrada real para a próxima execução de `deployment-execution` que tiver
+acesso a uma conta AWS de fato:
 
 - [ ] `infra/bootstrap/` aplicado uma única vez (bucket S3 + DynamoDB de
       state) em conta AWS real.
@@ -307,40 +380,97 @@ Nenhum destes itens foi executado ainda — são condição de entrada para
       hospital piloto (HL7 MLLP/FHIR/DICOM) ser confirmado — PRD-TECNICO.md,
       Premissa P1, ainda em aberto.
 
+**Item resolvido nesta entrega, fora desta lista** (não dependia de conta AWS
+real): `SEC-DEBT-002` — ver Seção 3.1.1.
+
 ---
 
 ## 8. Execuções de Deploy
 
 | Versão | Ambiente | Horário | Resultado |
 |---|---|---|---|
-| — | — | — | Nenhum deploy executado até o momento. Esta tabela é preenchida por `deployment-execution`, depois da dupla aprovação de QA e DevSecOps sobre o mesmo build. |
+| Lote 1 (BE-01, BE-02, BE-05, BE-08, FE-01 a FE-04) | staging | 2026-09-03 | **Bloqueado por limitação de ambiente de execução — não é deploy concluído, não é incidente, não é achado de segurança/reprovação de QA.** Ver detalhamento abaixo. |
+
+**Detalhamento da tentativa de 2026-09-03**:
+
+1. Dupla aprovação confirmada antes de iniciar: `QA-REPORT.md` §4.8
+   (Aprovado com ressalvas) + `SECURITY-REVIEW.md` "Lote 1" (Aprovado com
+   débito registrado) + `LOTE-LOG.md` (Tech Lead, Aprovado com ressalvas,
+   integridade de decomposição confirmada) — as três condições de entrada de
+   `deployment-execution` para este lote estavam satisfeitas.
+2. `SEC-DEBT-002` (prazo: "antes do primeiro deploy real em staging", ou
+   seja, exatamente esta execução) foi resolvido em código antes de
+   qualquer tentativa de `apply` — ver Seção 3.1.1. Nenhum segredo em texto
+   plano foi introduzido no repositório para viabilizar essa correção.
+3. Verificação genuína de acesso a uma conta AWS real neste ambiente de
+   execução, **antes de presumir que não havia**: `aws sts
+   get-caller-identity` — binário `aws` não encontrado; nenhuma variável de
+   ambiente `AWS_*`; nenhum diretório `~/.aws/`; binário `terraform` também
+   ausente. Não há credencial de nenhuma cloud provisionada para este
+   agente. Não há, portanto, ambiente de staging real acessível para onde
+   fazer o deploy.
+4. Consequência: `infra/bootstrap/` nunca foi aplicado, nenhuma role IAM de
+   OIDC existe, nenhum `terraform apply` foi executado, nenhum recurso AWS
+   foi criado, nenhum drill de rollback foi exercitado contra infraestrutura
+   real (a Seção 5 permanece "mecanismo definido como código, não
+   exercitado"), nenhuma observabilidade está ativa com tráfego real, e
+   nenhum smoke test rodou contra uma URL real.
+5. **Nenhum output de `terraform apply`/`aws ecs`/smoke test foi inventado ou
+   simulado neste registro.** Esta linha da tabela documenta honestamente
+   uma limitação de ambiente de execução (falta de acesso a conta cloud
+   real), não um "deploy concluído". Por guardrail de DevOps, isso também
+   não é tratado como pausa obrigatória aguardando confirmação do CTO — não
+   é um achado de segurança nem uma reprovação de QA; é simplesmente a
+   ausência, neste ambiente, do recurso de infraestrutura necessário para
+   executar a ação.
+
+**Quando uma conta AWS real existir**, a sequência a seguir (não executada
+ainda) é: `infra/bootstrap/` → roles OIDC + GitHub Environments (Seção 7) →
+`terraform apply` em `infra/environments/staging/` → drill de rollback real
+(deploy intencionalmente quebrado → `rollback-production.yml` adaptado/
+equivalente para staging → confirmação de recuperação, Seção 5) → smoke test
+(`GET /api/health`) → só então preencher esta tabela com uma linha de
+sucesso e avançar `observability-setup`/`non-functional-requirement-
+validation` contra infraestrutura real.
 
 ## 9. Incidentes Pós-Deploy
 
-Nenhum — nenhum deploy foi executado ainda.
+Nenhum — nenhum deploy real ocorreu (Seção 8), logo não há janela de
+observação pós-deploy (24h) em curso. Esta seção permanece vazia até o
+primeiro `apply` real acontecer.
 
 ## 10. Sinalização ao Software Architect
 
-Nenhuma limitação de infraestrutura real foi identificada até o momento —
-esperado, já que nenhum recurso foi de fato provisionado em conta AWS nesta
-etapa (apenas definição declarativa). Este item será revisitado
-ativamente quando `deployment-execution` provisionar a infraestrutura real
-pela primeira vez (ex.: custo real de Multi-AZ/failover pode divergir da
-estimativa implícita do `SDD.md` §6.2, que já assume ausência de
-escalabilidade horizontal multi-hospital no MVP).
+Nenhuma limitação de **infraestrutura provisionada** foi identificada, porque
+nenhum recurso foi de fato criado em conta AWS (Seção 8) — não há dado real
+(custo, paridade de serviço, desempenho) para contrastar com o `SDD.md` §6.
+A limitação identificada nesta entrega é de **ambiente de execução deste
+agente** (sem acesso a conta cloud/credencial AWS), não de arquitetura ou de
+infraestrutura provisionada — portanto não é escalada ao Software Architect
+como limitação de infraestrutura (guardrail de DevOps: só limitação real de
+infraestrutura provisionada diverge para lá). Este item permanece para ser
+revisitado ativamente quando `deployment-execution` provisionar a
+infraestrutura real pela primeira vez (ex.: custo real de Multi-AZ/failover
+pode divergir da estimativa implícita do `SDD.md` §6.2).
 
 ## 11. Fechamento do Ciclo (Gate 4)
 
-**Ainda não aplicável.** O Gate 4 (`PIPELINE-CONVENTIONS.md`) é o registro
-de fechamento do ciclo de governança aberto no Gate 1 do CTO, reportado
+**Ainda não aplicável.** O Gate 4 (`PIPELINE-CONVENTIONS.md`) é o registro de
+fechamento do ciclo de governança aberto no Gate 1 do CTO, reportado
 **depois** que um deploy real acontece e a janela de observação pós-deploy
-(padrão 24h) se encerra sem incidente crítico. Como nenhum deploy ocorreu
-nesta entrega, esta seção permanece em aberto e será preenchida por
-`deploy-report-drafting` na conclusão de `deployment-execution`.
+(padrão 24h) se encerra sem incidente crítico. A tentativa de 2026-09-03
+(Seção 8) não constitui esse deploy real — foi bloqueada por limitação de
+ambiente de execução antes de qualquer `apply`. Reportado ao CTO nesta
+entrega, como fechamento parcial/intermediário do ciclo aberto no Gate 1: o
+Lote 1 tem dupla aprovação técnica completa e `SEC-DEBT-002` resolvido, mas o
+deploy real em staging (e, com mais razão, em produção) permanece pendente
+de um ambiente de execução com acesso a conta AWS real. Esta seção será
+reaberta e preenchida por `deploy-report-drafting` assim que
+`deployment-execution` rodar com sucesso contra infraestrutura real.
 
 ---
 
-## Checklist de Critérios de Pronto desta entrega (IaC + CI/CD, não deploy)
+## Checklist de Critérios de Pronto — IaC/CI-CD (2026-09-02) + `deployment-execution` do Lote 1 (2026-09-03)
 
 - [x] Todo componente da `SDD.md` §3 tem definição de IaC correspondente
       (Seção 3 acima)
@@ -358,23 +488,36 @@ nesta entrega, esta seção permanece em aberto e será preenchida por
       automático sem checagem (Seção 4.3)
 - [x] Falha em qualquer estágio produz log diagnosticável (jobs nomeados,
       mensagens de erro explícitas nos gates)
-- [ ] Rollback testado (não só definido) — pendente, pré-requisito antes do
-      primeiro deploy real (Seção 5/7)
-- [ ] Observabilidade ativa com tráfego real — fundação pronta, afinação
-      pendente de `deployment-execution` (Seção 6/7)
-- [ ] Nenhuma limitação de infraestrutura real ainda avaliável — nenhum
-      recurso provisionado de fato nesta etapa (Seção 10)
+- [x] `SEC-DEBT-002` resolvido em código antes do primeiro deploy real em
+      staging, dentro do prazo registrado em `SECURITY-REVIEW.md`/
+      `LOTE-LOG.md` (Seção 3.1.1)
+- [ ] **Build em produção** — não aplicável ainda: esta entrega cobriu
+      `staging` (Seção 8), produção segue fora de escopo desta chamada
+- [ ] Rollback testado (não só definido) — pendente, bloqueado pela mesma
+      limitação de ambiente de execução da Seção 8 (não há infraestrutura
+      real contra a qual exercitar o drill)
+- [ ] Observabilidade ativa com tráfego real — fundação pronta em código
+      (Seção 6), não ativa (nenhum recurso provisionado, Seção 8)
+- [x] Nenhuma limitação de **infraestrutura provisionada** identificada
+      (nada foi provisionado) — a limitação real desta entrega é de
+      **ambiente de execução** (sem conta AWS acessível), registrada com
+      honestidade na Seção 8, não maquiada como sucesso
+- [ ] Janela pós-deploy de 24h sem incidente crítico — não aplicável, não
+      houve deploy real
+- [x] Resultado reportado ao CTO (Gate 4, fechamento parcial — Seção 11)
 
-**Veredito do DevOps para esta entrega**: infraestrutura como código e
-pipeline de CI/CD preparados e versionados, cobrindo integralmente a Seção 3
-do `SDD.md` e a superfície de exposição da Seção 7.5, incorporando as regras
-de infraestrutura/segurança do `GUARDRAILS.md` aplicáveis a esta fase
-(Seções A, E, I). Nenhum deploy foi executado — aguardando dupla aprovação
-de QA (`QA-REPORT.md`) e DevSecOps (`SECURITY-REVIEW.md`) sobre o mesmo
-build antes de `deployment-execution` ser acionado, e o primeiro
-`terraform apply`/deploy real de produção permanece condicionado à
-validação explícita do usuário, conforme instrução desta rodada de
-execução.
+**Veredito do DevOps para esta entrega**: `SEC-DEBT-002` resolvido em código
+(Seção 3.1.1), dentro do prazo de "antes do primeiro deploy real em
+staging". A tentativa real de `deployment-execution` do Lote 1 em staging
+foi genuinamente verificada (não presumida) e está **bloqueada por
+limitação de ambiente de execução** — nenhuma credencial/conta AWS
+disponível para este agente (Seção 7/8). Isso não é tratado como pausa
+obrigatória nem como deploy concluído: é registrado com honestidade como
+pendência de ambiente, mantendo toda a infraestrutura como código e o
+pipeline prontos para a primeira execução real assim que uma conta AWS
+existir. O critério de pronto "deploy concluído com sucesso"
+(`deployment-execution`, Definition of Done) **não foi atingido nesta
+entrega** — nem foi simulado como atingido.
 
 ---
 
@@ -383,3 +526,5 @@ execução.
 | Data | Origem | Mudança | Motivo |
 |---|---|---|---|
 | 2026-09-02 | devops | Criação de `infra/` (Terraform: bootstrap, 8 módulos, 2 ambientes) e `.github/workflows/` (5 pipelines) + este `DEPLOY.md` inicial | Início da fase de execução — `infrastructure-as-code-provisioning` e `cicd-pipeline-configuration` rodam em paralelo à implementação, a partir do `SDD.md` aprovado no Gate 2, sem esperar nenhum build terminar |
+| 2026-09-03 | devops | Correção de `SEC-DEBT-002`: `infra/modules/secrets/main.tf` passou a gerar `app_database_url`/`app_db_role_password`/`migration_database_url`; `infra/environments/{staging,production}/main.tf` passou a injetar `APP_DATABASE_URL`/`REDIS_HOST`/`REDIS_PASSWORD`/`REDIS_TLS` (nomes exatos que o código do Backend lê), em vez do blob JSON único anterior (`DATABASE_CREDENTIALS`/`REDIS_AUTH`) | Prazo do débito registrado em `SECURITY-REVIEW.md`/`LOTE-LOG.md`: "antes do primeiro deploy real em staging" — Lote 1 acabou de receber dupla aprovação (QA + DevSecOps) e integridade confirmada pelo Tech Lead |
+| 2026-09-03 | devops | Tentativa real de `deployment-execution` (Lote 1, staging): verificação genuína de acesso a conta AWS (nenhuma credencial/binário `aws`/`terraform` disponível neste ambiente de execução) — deploy real **bloqueado por limitação de ambiente**, registrado honestamente na Seção 8, sem simular sucesso | Dupla aprovação (QA + DevSecOps) + integridade (Tech Lead) liberaram o Lote 1 para deploy; a limitação encontrada é de ambiente de execução do agente, não de infraestrutura/arquitetura — não escalada ao Software Architect (Seção 10), não é achado de segurança nem pausa obrigatória adicional |
