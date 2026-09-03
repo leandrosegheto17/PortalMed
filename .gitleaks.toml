@@ -1,0 +1,76 @@
+## .gitleaks.toml
+##
+## Config de secret scanning (gitleaks) para o Portal de Resultados de Exames.
+## Dono: DevSecOps. Roda continuamente via `.github/workflows/security-scan.yml`
+## (job `secret-scan`), sobre todo push/PR, em todo o repositório (não só
+## backend/frontend) — segredo commitado em qualquer artefato (config, script,
+## doc) é achado de severidade alta/crítica por padrão
+## (`static-security-analysis` SKILL.md, "Critério de Aceite").
+##
+## Extende o ruleset default do gitleaks (cobre AWS keys, chaves privadas,
+## tokens de provedores comuns, JWT, etc.) e adiciona regras específicas do
+## stack deste projeto (ADR-005: Node.js/TypeScript/NestJS + React).
+
+[extend]
+useDefault = true
+
+# --- Regras específicas do projeto -------------------------------------
+
+# Credencial de serviço entre Aplicação Core e serviços de borda (Integration
+# Gateway / Imaging Gateway) — SDD.md §7.1: "autenticação via credencial de
+# serviço dedicada (API key/mTLS interno)". Nunca deveria estar hardcoded,
+# mesmo em arquivo de config de exemplo não versionado como .env.example.
+[[rules]]
+id = "portalmed-internal-service-credential"
+description = "Possível credencial de serviço interno (Integration/Imaging Gateway) hardcoded"
+regex = '''(?i)(integration[_-]?gateway|imaging[_-]?gateway|internal[_-]?service)[_-]?(api[_-]?key|token|secret)\s*[:=]\s*['"][A-Za-z0-9+/_=\-]{12,}['"]'''
+tags = ["portalmed", "internal-service"]
+
+# String de conexão PostgreSQL/Redis com credencial embutida.
+[[rules]]
+id = "portalmed-db-connection-string"
+description = "String de conexão de banco/Redis com credencial embutida"
+regex = '''(postgres(ql)?|redis)://[^:\s]+:[^@\s]+@[^\s'"]+'''
+tags = ["portalmed", "database"]
+
+# Segredo TOTP (RFC 6238, ADR-008) — GUARDRAILS.md D.17/E.22 exige `pgcrypto`
+# para dado sensível em repouso; um segredo TOTP em texto claro no código
+# (não só no banco) é sempre achado alto/crítico.
+[[rules]]
+id = "portalmed-totp-secret"
+description = "Possível segredo TOTP/MFA hardcoded em código"
+regex = '''(?i)(totp|mfa)[_-]?secret\s*[:=]\s*['"][A-Za-z2-7]{16,}['"]'''
+tags = ["portalmed", "mfa", "adr-008"]
+
+# --- Casos conhecidos de falso positivo (documentação de skills/planejamento) -
+# Achados do baseline manual rodado em 2026-09-02 (ver SECURITY-REVIEW.md /
+# handoff do DevSecOps): `1x0000000000000000000000000000000AA` é o
+# sitekey/secret de TESTE oficial e público do Cloudflare Turnstile
+# (documentado publicamente pela Cloudflare), não um segredo real; demais
+# ocorrências nos arquivos abaixo são fixtures de teste (usuário/senha de
+# exemplo, seletor CSS de campo de senha), não credencial real. Alcance
+# restrito a esses arquivos específicos, dentro de `.claude/skills/` (tooling
+# de terceiros/modelos de referência, não código do projeto), para não
+# mascarar segredo real introduzido em `backend/`/`frontend/`.
+#
+# Também cobre, nesta mesma tabela (TOML permite só uma [allowlist] top-level),
+# os diretórios sempre ignorados pelo scanner: dependências de terceiros e
+# build artifacts nunca devem reprovar o achado — o segredo relevante é o que
+# o próprio time comita, não o que vem de node_modules/dist.
+[allowlist]
+  regexes = [
+    '''1x0000000000000000000000000000000AA''',
+  ]
+  paths = [
+    '''\.claude/skills/playwright-skill/lib/helpers\.js''',
+    '''\.claude/skills/playwright-skill/API_REFERENCE\.md''',
+    '''\.claude/skills/models/playwright-skill/lib/helpers\.js''',
+    '''\.claude/skills/models/playwright-skill/API_REFERENCE\.md''',
+    '''\.claude/skills/models/nestjs-modular-monolith/references/testing-patterns\.md''',
+    '''\.claude/skills/models/cloudflare-deploy/references/turnstile/patterns\.md''',
+    '''node_modules''',
+    '''dist''',
+    '''build''',
+    '''coverage''',
+    '''\.git''',
+  ]

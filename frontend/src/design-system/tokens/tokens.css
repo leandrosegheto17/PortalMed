@@ -1,0 +1,47 @@
+/*
+ * Sistema de tokens visuais (UX-SPEC.md §3.3) — duas camadas deliberadamente
+ * separadas para resolver a tensão entre identidade de marca por hospital
+ * (RF-11, ADR-004) e acessibilidade WCAG 2.1 AA (RNF-06, inegociável).
+ *
+ * Camada 2 (abaixo, neste arquivo): tokens de SISTEMA, fixos, independentes
+ * de tenant, já verificados WCAG 2.1 AA >= 4.5:1 contra `--color-bg-default`
+ * (ver contraste calculado/documentado em `fixedTokenValues.ts`, que é a
+ * fonte única de verdade destes valores — mantenha os dois em sincronia;
+ * `fixedTokenValues.sync.test.ts` falha o build se divergirem).
+ *
+ * Camada 1 (marca dinâmica, `--color-brand-primary` e `--brand-logo-url`):
+ * NÃO definida aqui. É aplicada em runtime, por tenant, via
+ * `applyBrandTokens.ts`, a partir de `BRANDING_CONFIG` (nunca hardcoded neste
+ * arquivo — critério de aceite de FE-01). Os valores abaixo em `:root` são
+ * apenas o *fallback* usado antes da marca carregar (ou em caso de falha ao
+ * buscá-la): referenciam um token fixo já validado, garantindo que a
+ * aplicação nunca renderize texto ilegível mesmo sem branding aplicado ainda.
+ */
+
+:root {
+  /* Camada 2 — tokens de sistema, fixos, WCAG 2.1 AA */
+  --color-text-primary: #1a2733;
+  --color-bg-default: #ffffff;
+  --color-success: #1e7a34;
+  --color-error: #b3261e;
+  --color-warning: #8a5a00;
+  --color-info: #1d5db3;
+
+  --font-family-base:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+
+  /* Camada 1 — fallback pré-carregamento/erro (ver nota acima) */
+  --color-brand-primary: var(--color-info);
+  --color-brand-primary-contrast-text: #ffffff;
+  --brand-logo-url: none;
+}

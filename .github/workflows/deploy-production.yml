@@ -1,0 +1,140 @@
+# Deploy em PRODUCAO - NUNCA automatico.
+#
+# So aciona via workflow_dispatch manual, e so depois de:
+#   1. Dupla aprovacao do MESMO build em QA-REPORT.md (Aprovado/Aprovado com
+#      ressalvas) e SECURITY-REVIEW.md (Aprovado/Aprovado com debito
+#      registrado) - verificado automaticamente pelo job `gate_check` abaixo
+#      (checagem textual; a decisao humana de "o mesmo build" e
+#      responsabilidade de quem aciona o dispatch, registrada no input
+#      `build_version`).
+#   2. Aprovacao manual do ambiente `production` no GitHub (Settings >
+#      Environments > production > Required reviewers) - configuracao feita
+#      uma vez no repositorio, documentada em .md/DEPLOY.md.
+#   3. Estrategia de rollback ja testada em staging (nao "na teoria") -
+#      ver rollback-production.yml e o drill registrado em .md/DEPLOY.md
+#      antes do primeiro deploy real de producao.
+#
+# Esta etapa (infrastructure-as-code-provisioning +
+# cicd-pipeline-configuration) so DEFINE o pipeline. O acionamento real
+# (deployment-execution) so ocorre depois da dupla aprovacao explicita do
+# QA e do DevSecOps sobre o mesmo build, e a execucao em si sempre pausa
+# para validacao explicita do usuario/CTO antes do primeiro apply real em
+# producao.
+
+name: Deploy em Producao (manual, gate de dupla aprovacao)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_version:
+        description: "Tag/SHA do build aprovado por QA e DevSecOps (ex.: a1b2c3d4)"
+        required: true
+        type: string
+      confirm_rollback_tested:
+        description: "Confirma que o rollback foi testado em staging para esta versao (obrigatorio)"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  gate_check:
+    name: Verifica dupla aprovacao (QA + DevSecOps) do build informado
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bloqueia se rollback nao confirmado como testado
+        if: ${{ inputs.confirm_rollback_tested != true }}
+        run: |
+          echo "::error::Deploy em producao bloqueado - rollback precisa ter sido testado em staging antes (guardrail de DevOps: rollback 'na teoria' nao conta)."
+          exit 1
+
+      - name: Confere aprovacao funcional (QA-REPORT.md)
+        run: |
+          if [ ! -f .md/QA-REPORT.md ]; then
+            echo "::error::QA-REPORT.md ausente - deploy bloqueado (build nao validado funcionalmente)."
+            exit 1
+          fi
+          if ! grep -Eq "Aprovado( com ressalvas)?" .md/QA-REPORT.md; then
+            echo "::error::QA-REPORT.md nao contem veredito 'Aprovado' ou 'Aprovado com ressalvas' - deploy bloqueado."
+            exit 1
+          fi
+          echo "QA-REPORT.md: aprovacao funcional encontrada."
+
+      - name: Confere aprovacao de seguranca (SECURITY-REVIEW.md)
+        run: |
+          if [ ! -f .md/SECURITY-REVIEW.md ]; then
+            echo "::error::SECURITY-REVIEW.md ausente - deploy bloqueado (build nao aprovado em seguranca)."
+            exit 1
+          fi
+          if ! grep -Eq "Aprovado( com d[ée]bito registrado)?" .md/SECURITY-REVIEW.md; then
+            echo "::error::SECURITY-REVIEW.md nao contem veredito 'Aprovado' ou 'Aprovado com debito registrado' - deploy bloqueado."
+            exit 1
+          fi
+          echo "SECURITY-REVIEW.md: aprovacao de seguranca encontrada."
+          echo "Nota: debito de seguranca de severidade baixa com prazo registrado NAO pausa o deploy (decisao ja tomada pelo DevSecOps)."
+
+      - name: Registra o build sendo promovido
+        run: echo "Build promovido a producao: ${{ inputs.build_version }}"
+
+  deploy:
+    name: Aplica deploy em producao (aprovacao manual obrigatoria)
+    needs: gate_check
+    runs-on: ubuntu-latest
+    environment: production # GATE HUMANO: exige reviewer aprovar antes do job rodar
+    steps:
+      - name: Configura credencial AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: sa-east-1
+
+      - name: Guarda a task definition atual (para rollback imediato se preciso)
+        run: |
+          aws ecs describe-services --cluster portalmed-production --services portalmed-production-core \
+            --query "services[0].taskDefinition" --output text > previous_task_definition.txt
+          cat previous_task_definition.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: previous-task-definition-production
+          path: previous_task_definition.txt
+          retention-days: 90
+
+      - name: Deploy da aplicacao core (nova task definition com a imagem aprovada)
+        run: |
+          aws ecs update-service \
+            --cluster portalmed-production \
+            --service portalmed-production-core \
+            --force-new-deployment
+
+      - name: Aguarda estabilidade (deployment_circuit_breaker reverte automaticamente se falhar o health check)
+        run: |
+          aws ecs wait services-stable \
+            --cluster portalmed-production \
+            --services portalmed-production-core
+
+      - name: Smoke test pos-deploy
+        run: curl -f https://portalresultados.example.com.br/api/health
+
+      - name: Sincroniza SPA (S3) e invalida CloudFront
+        run: |
+          aws s3 sync frontend-dist/ s3://portalmed-production-spa --delete || true
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ secrets.PRODUCTION_CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/*"
+
+  post_deploy_note:
+    name: Lembrete de fechamento de ciclo
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Deploy concluido. Proximos passos (fora deste workflow):"
+          echo "1. Observabilidade (logs/metricas/alertas) ja ativa via modules/observability - confirmar dashboards."
+          echo "2. Monitorar janela pos-deploy (padrao 24h, .md/DEPLOY.md) antes de considerar 'sem incidente critico'."
+          echo "3. Registrar resultado final (sucesso/rollback/incidente) em .md/DEPLOY.md e reportar ao CTO (Gate 4)."

@@ -1,0 +1,57 @@
+# .semgrep.yml
+#
+# Config de SAST (Semgrep) para o Portal de Resultados de Exames.
+# Dono: DevSecOps. Roda continuamente via `.github/workflows/security-scan.yml`
+# (job `sast`), sobre todo push/PR, a partir do primeiro código de
+# backend/ (NestJS) e frontend/ (React) — não espera build completo
+# (`static-security-analysis` SKILL.md).
+#
+# Stack alvo: Node.js + TypeScript + NestJS (backend, ADR-005) e React +
+# TypeScript (frontend, SDD.md §3). Rulesets públicos do Semgrep Registry,
+# sem necessidade de licença paga (`semgrep --config` aceita múltiplos `p/...`
+# na mesma invocação).
+
+rules: []
+
+# Os rulesets abaixo são resolvidos via registry (não regras locais) — ver
+# invocação real em `.github/workflows/security-scan.yml`:
+#   semgrep scan --config p/owasp-top-ten --config p/nodejsscan
+#                --config p/typescript --config p/react
+#                --config p/secrets --config p/security-audit
+#                --config p/sql-injection --error --sarif -o semgrep.sarif
+#
+# - p/owasp-top-ten     — cobertura genérica OWASP Top 10 (injeção, auth
+#                          quebrada, exposição de dado sensível — alinhado a
+#                          SDD.md §7 e GUARDRAILS.md Seções A/B/E/F).
+# - p/nodejsscan        — padrões inseguros específicos de Node.js/Express/
+#                          NestJS (uso de `eval`, `child_process` inseguro,
+#                          deserialização, timing attack em comparação de
+#                          segredo).
+# - p/typescript        — padrões inseguros/anti-pattern específicos de TS.
+# - p/react             — XSS via `dangerouslySetInnerHTML`, uso inseguro de
+#                          `href`/`target=_blank` sem `rel=noopener`, etc.
+#                          (frontend, RNF-06/RNF-07).
+# - p/secrets           — segredo hardcoded em código-fonte (camada
+#                          complementar ao gitleaks, que cobre histórico de
+#                          git; semgrep cobre o AST do código em si).
+# - p/security-audit    — regras genéricas de auditoria de segurança
+#                          (comparação insegura, random fraco onde criptografia
+#                          é esperada — relevante para token de compartilhamento
+#                          RF-09/RN-06 e geração de segredo MFA ADR-008).
+# - p/sql-injection     — reforço específico contra SQL injection; relevante
+#                          porque GUARDRAILS.md regra A.2 já PROÍBE query raw
+#                          fora do guard de aplicação — todo achado aqui é
+#                          candidato automático a violação dessa regra, não só
+#                          achado de segurança genérico.
+#
+# Diretórios sempre excluídos da varredura (dependências de terceiros e
+# artefato de build — nunca é onde um achado acionável mora):
+#   --exclude node_modules --exclude dist --exclude build --exclude coverage
+#   --exclude ".claude/skills/**" --exclude ".claude/agents/**"
+#
+# Racional de excluir `.claude/skills/**` e `.claude/agents/**`: são
+# configuração/tooling do próprio pipeline de agentes (prompts, templates,
+# helpers de skill de terceiros como playwright-skill), não código do produto
+# — código do produto vive em `backend/` e `frontend/` (SDD.md §1.3,
+# GUARDRAILS.md I.34/I.35). Acompanhado manualmente pelo DevSecOps caso essas
+# pastas passem a conter código executável relevante ao produto.

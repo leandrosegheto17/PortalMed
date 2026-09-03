@@ -1,0 +1,84 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 45%);
+  padding: var(--spacing-md);
+  z-index: 100;
+}
+
+.dialog {
+  width: 100%;
+  max-width: 480px;
+  background: var(--color-bg-default);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-lg);
+  font-family: var(--font-family-base);
+}
+
+.title {
+  margin: 0 0 var(--spacing-sm);
+  font-size: 1.125rem;
+}
+
+.description {
+  margin: 0 0 var(--spacing-lg);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+}
+
+.button {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 var(--spacing-md);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-text-primary);
+  background: var(--color-bg-default);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: 2px;
+}
+
+.confirm {
+  border-color: var(--color-info);
+  background: var(--color-info);
+  color: #ffffff;
+}
+
+.confirmDestructive {
+  border-color: var(--color-error);
+  background: var(--color-error);
+  color: #ffffff;
+}
+
+/* §6.2: modais de confirmação ocupam a tela inteira em mobile. */
+@media (max-width: 599px) {
+  .overlay {
+    padding: 0;
+  }
+
+  .dialog {
+    max-width: none;
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+}

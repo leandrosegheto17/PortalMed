@@ -1,0 +1,66 @@
+/*
+ * Destaque deliberadamente diferente de TermsAcceptanceCheckbox (moldura
+ * sólida mais grossa + fundo com leve tingimento + ícone + selo textual),
+ * nunca apenas uma cor diferente — UX-SPEC.md §3.2 exige que a distinção
+ * seja perceptível mesmo para quem não distingue bem cor (ex.: daltonismo).
+ */
+
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md);
+  border: 2px solid var(--color-info);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-info) 6%, var(--color-bg-default));
+  font-family: var(--font-family-base);
+}
+
+.badge {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-weight: 700;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--color-info);
+}
+
+.icon {
+  flex: 0 0 auto;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  min-height: 44px;
+  padding: var(--spacing-xs) 0;
+  cursor: pointer;
+}
+
+.checkbox {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  accent-color: var(--color-info);
+}
+
+.checkbox:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: 2px;
+}
+
+.text {
+  color: var(--color-text-primary);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.helper {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-primary);
+}

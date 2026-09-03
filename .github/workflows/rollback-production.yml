@@ -1,0 +1,70 @@
+# Rollback de producao - mecanismo TESTADO, nao so documentado (guardrail de
+# DevOps). Reverte o servico ECS core para a task definition estavel
+# anterior. Deve ser exercitado como "drill" em staging antes do primeiro
+# deploy real de producao (evidencia registrada em .md/DEPLOY.md) - so
+# assim conta como "rollback testado", nao "na teoria".
+
+name: Rollback de Producao
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente alvo do rollback"
+        required: true
+        type: choice
+        options: [staging, production]
+      target_task_definition_arn:
+        description: "ARN completo da task definition estavel para reverter (ver artifact previous-task-definition-* do deploy que falhou)"
+        required: true
+        type: string
+      reason:
+        description: "Motivo do rollback (incidente, regressao, etc.)"
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Configura credencial AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: sa-east-1
+
+      - name: Reverte o servico ECS core para a task definition informada
+        run: |
+          CLUSTER="portalmed-${{ inputs.environment }}"
+          SERVICE="portalmed-${{ inputs.environment }}-core"
+          echo "Revertendo $SERVICE em $CLUSTER para ${{ inputs.target_task_definition_arn }}"
+          aws ecs update-service \
+            --cluster "$CLUSTER" \
+            --service "$SERVICE" \
+            --task-definition "${{ inputs.target_task_definition_arn }}" \
+            --force-new-deployment
+
+      - name: Aguarda estabilidade pos-rollback
+        run: |
+          aws ecs wait services-stable \
+            --cluster "portalmed-${{ inputs.environment }}" \
+            --services "portalmed-${{ inputs.environment }}-core"
+
+      - name: Smoke test pos-rollback
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            curl -f https://portalresultados.example.com.br/api/health
+          else
+            curl -f https://staging.portalresultados.example.com.br/api/health
+          fi
+
+      - name: Registra motivo do rollback
+        run: |
+          echo "Rollback executado em ${{ inputs.environment }}."
+          echo "Motivo: ${{ inputs.reason }}"
+          echo "Registrar este evento em .md/DEPLOY.md (relatorio de deploy, status=rollback)."

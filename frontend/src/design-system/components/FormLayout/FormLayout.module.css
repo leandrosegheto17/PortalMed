@@ -1,0 +1,18 @@
+/*
+ * UX-SPEC.md §6.2: formulários sempre em coluna única, em qualquer
+ * breakpoint (mobile/tablet/desktop) — decisão deliberada, não um "mobile
+ * first que expande em desktop". Por isso este arquivo, propositalmente,
+ * não tem nenhuma regra `@media` alterando `flex-direction`/
+ * `grid-template-columns`/`columns` — a ausência de exceção por breakpoint é
+ * o próprio requisito. Verificado também via teste automatizado
+ * (`FormLayout.test.tsx`, leitura do texto bruto deste arquivo — mesma
+ * técnica de `?raw` já usada em `fixedTokenValues.sync.test.ts`, FE-01).
+ */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  width: 100%;
+  max-width: 480px;
+  font-family: var(--font-family-base);
+}

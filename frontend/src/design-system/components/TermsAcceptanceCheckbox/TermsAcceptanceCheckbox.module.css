@@ -1,0 +1,27 @@
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  min-height: 44px;
+  padding: var(--spacing-xs) 0;
+  font-family: var(--font-family-base);
+  cursor: pointer;
+}
+
+.checkbox {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  accent-color: var(--color-info);
+}
+
+.checkbox:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: 2px;
+}
+
+.text {
+  color: var(--color-text-primary);
+  font-size: 0.9375rem;
+}

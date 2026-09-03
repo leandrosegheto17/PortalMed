@@ -1,0 +1,42 @@
+/*
+ * Header institucional (UX-SPEC.md §3.1). Altura fixa (critério de aceite de
+ * FE-02) e cor de fundo/texto sempre via os tokens de marca dinâmicos globais
+ * já aplicados por FE-01 (`--color-brand-primary`,
+ * `--color-brand-primary-contrast-text`) — nunca uma cor hardcoded aqui,
+ * inclusive a regra de contraste (texto claro/escuro calculado
+ * automaticamente) já vem resolvida por `applyBrandTokens`.
+ */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  height: var(--header-height, 64px);
+  padding: 0 var(--spacing-lg);
+  background: var(--color-brand-primary);
+  color: var(--color-brand-primary-contrast-text);
+  font-family: var(--font-family-base);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.logo {
+  height: 36px;
+  width: auto;
+  max-width: 160px;
+  object-fit: contain;
+}
+
+.hospitalName {
+  font-weight: 700;
+  font-size: 1.125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

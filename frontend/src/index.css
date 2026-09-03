@@ -1,0 +1,13 @@
+/* Sistema de tokens (Camada 1 dinâmica + Camada 2 fixa, UX-SPEC.md §3.3). */
+@import './design-system/tokens/tokens.css';
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-family-base);
+  color: var(--color-text-primary);
+  background: var(--color-bg-default);
+}

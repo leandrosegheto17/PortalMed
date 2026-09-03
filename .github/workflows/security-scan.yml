@@ -1,0 +1,142 @@
+name: Security Scan (DevSecOps — static-security-analysis)
+
+# Dono: DevSecOps. Workflow dedicado e separado do pipeline de lint/test que
+# o Backend configura em BE-01 (TASK.md) — evita conflito de arquivo com
+# `.github/workflows/ci.yml` e mantém a varredura de segurança rodando
+# independentemente da esteira de build/teste funcional.
+#
+# Roda em TODO push/PR, desde o início do repositório — não espera nenhum
+# build completo (`static-security-analysis` SKILL.md, "Quando é Acionada").
+# Os jobs de dependência (backend/frontend) fazem no-op gracioso enquanto
+# `backend/package-lock.json` / `frontend/package-lock.json` não existirem
+# (ainda em criação nas tarefas BE-01/FE-01) e passam a rodar de verdade
+# automaticamente assim que esses arquivos forem commitados — nenhuma
+# alteração manual necessária neste workflow quando isso acontecer.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------
+  # 1. Segredo hardcoded (código, config, doc) — sempre severidade
+  #    alta/crítica quando encontrado (static-security-analysis SKILL.md).
+  #    Roda sobre o repositório inteiro, não só backend/frontend.
+  # ---------------------------------------------------------------------
+  secret-scan:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
+  # ---------------------------------------------------------------------
+  # 2. SAST — padrões de código inseguro (injeção, uso de função perigosa,
+  #    deserialização insegura, XSS). Config em `.semgrep.yml` (comentários
+  #    com o racional de cada ruleset); rulesets reais passados via --config
+  #    abaixo porque o Semgrep Registry não é referenciável dentro do YAML
+  #    local da mesma forma que uma config CLI multi-`p/`.
+  # ---------------------------------------------------------------------
+  sast:
+    name: SAST (semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/owasp-top-ten
+            p/nodejsscan
+            p/typescript
+            p/react
+            p/secrets
+            p/security-audit
+            p/sql-injection
+        env:
+          SEMGREP_RULES: >-
+            p/owasp-top-ten
+            p/nodejsscan
+            p/typescript
+            p/react
+            p/secrets
+            p/security-audit
+            p/sql-injection
+
+  # ---------------------------------------------------------------------
+  # 3. Dependência vulnerável — backend (NestJS). No-op gracioso até BE-01
+  #    publicar `backend/package-lock.json`.
+  # ---------------------------------------------------------------------
+  dependency-scan-backend:
+    name: Dependency Scan (backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verifica se backend/package-lock.json já existe
+        id: check
+        run: |
+          if [ -f "backend/package-lock.json" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "backend/package-lock.json ainda não existe (BE-01 em andamento) — job em no-op, sem falhar o pipeline."
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.exists == 'true'
+        with:
+          node-version-file: backend/.nvmrc
+      - name: npm audit (backend)
+        if: steps.check.outputs.exists == 'true'
+        working-directory: backend
+        run: npm audit --audit-level=high
+      - name: OSV Scanner (backend)
+        if: steps.check.outputs.exists == 'true'
+        uses: google/osv-scanner-action@v1
+        with:
+          scan-args: |-
+            --lockfile=backend/package-lock.json
+
+  # ---------------------------------------------------------------------
+  # 4. Dependência vulnerável — frontend (React). No-op gracioso até FE-01
+  #    publicar `frontend/package-lock.json`.
+  # ---------------------------------------------------------------------
+  dependency-scan-frontend:
+    name: Dependency Scan (frontend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verifica se frontend/package-lock.json já existe
+        id: check
+        run: |
+          if [ -f "frontend/package-lock.json" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "frontend/package-lock.json ainda não existe (FE-01 em andamento) — job em no-op, sem falhar o pipeline."
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.exists == 'true'
+        with:
+          node-version-file: frontend/.nvmrc
+      - name: npm audit (frontend)
+        if: steps.check.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm audit --audit-level=high
+      - name: OSV Scanner (frontend)
+        if: steps.check.outputs.exists == 'true'
+        uses: google/osv-scanner-action@v1
+        with:
+          scan-args: |-
+            --lockfile=frontend/package-lock.json

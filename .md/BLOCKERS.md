@@ -142,3 +142,98 @@ apenas fecham lacuna que ADR-003 não havia coberto.
   reabertura de bloqueio via `tech-lead` (lacuna estrutural encontrada na
   decomposição), não reprovação do CTO (ver
   `.claude/agents/software-architect.md`, "Recebe reabertura de").
+
+---
+
+## Bloqueio 003 — 2026-09-02
+
+- Reportado por: qa (durante validação de BE-02, fase de execução)
+- Escalado para: cto
+- Artefato/trecho afetado: `GUARDRAILS.md` regra A.5 (Seção A, "regra de
+  maior severidade deste projeto") e `TASK.md` BE-02 / `backend/migrations/
+  1788336780000_create-integration-endpoint-configs-table.ts`
+- Descrição: o critério de aceite de BE-02 (`TASK.md`) e a redação literal de
+  `GUARDRAILS.md` regra A.5 exigem constraint `UNIQUE` **por tenant** para
+  `INTEGRATION_ENDPOINT_CONFIG.dicom_remote_ae_title`. Ao implementar, o
+  Backend identificou que essa leitura literal não cumpre o próprio objetivo
+  de segurança da regra: `ADR-012` nomeia explicitamente, nas suas "Negative
+  Consequences", o risco de colisão de AE Title **entre** tenants — uma
+  constraint composta `(tenant_id, dicom_remote_ae_title)` não previne essa
+  colisão (dois tenants diferentes poderiam cadastrar o mesmo AE Title, cada
+  um "único" dentro do próprio tenant, e a notificação do Orthanc seria
+  então ambígua). O Backend implementou unicidade **global** (índice único
+  parcial sem `tenant_id` na chave) — tecnicamente correta e confirmada pelo
+  QA (`QA-DEBT-006`, `.md/QA-REPORT.md` Seção 2) — mas **sem seguir o
+  processo formal de exceção que a própria `GUARDRAILS.md` regras 37-39
+  exige**: nenhuma entrada foi aberta aqui antes da implementação, e nenhuma
+  aprovação do CTO foi registrada no "Log de Alterações" de `GUARDRAILS.md`
+  antes da mudança de comportamento em relação à regra A.5. A decisão ficou
+  documentada só em comentário de migration e em `backend/docs/migrations.md`
+  — nenhum dos dois é o mecanismo de governança formal do projeto.
+- Impacto se não resolvido: `GUARDRAILS.md` regra A.5 e `TASK.md` BE-02
+  continuam com uma redação ("UNIQUE por tenant") que diverge do que está
+  realmente implementado e é o comportamento correto — qualquer leitor futuro
+  (incluindo quem implementar BE-38, que consome diretamente esta mesma
+  coluna) pode presumir a leitura literal errada e reintroduzir o problema
+  que ADR-012 already endereçou. Mais amplamente, deixa um precedente de
+  exceção a uma "regra de maior severidade" sem rastro formal de aprovação.
+- Sugestão (do QA, registrada em `QA-DEBT-006`): formalizar a correção de
+  redação em `TASK.md` (BE-02) e `GUARDRAILS.md` (regra A.5) para "UNIQUE
+  global, não composta com `tenant_id`", com entrada no Log de Alterações de
+  `GUARDRAILS.md` — antes de BE-38 (Fase 2 do backlog) ser implementada, já
+  que essa tarefa consome diretamente `dicom_remote_ae_title`.
+- Status: **Resolvido em `GUARDRAILS.md`, 2026-09-02**
+
+### Resolução (cto, 2026-09-02)
+
+**Correção técnica avaliada e confirmada.** Reli `ADR-012` (seção "Negative
+Consequences") e `backend/docs/migrations.md` (seção "Decisões de detalhe
+tomadas nesta tarefa"). Concordo com a análise do Backend, já confirmada
+pelo QA em `.md/QA-REPORT.md` Seção 1.4/`QA-DEBT-006`: `ADR-012` nomeia
+explicitamente, nas suas "Negative Consequences", o risco de colisão de AE
+Title **entre** tenants ("se dois hospitais, por erro de configuração
+externa ao sistema, usarem o mesmo AE Title de origem, a resolução de
+tenant falha silenciosamente atribuindo ao tenant errado"). Uma constraint
+composta `(tenant_id, dicom_remote_ae_title)` não mitiga esse risco — só
+impediria um único tenant de cadastrar o mesmo AE Title duas vezes, cenário
+que a tabela `INTEGRATION_ENDPOINT_CONFIG` (1:1 com `TENANT`) já torna
+essencialmente impossível por outra via. A unicidade **precisa** ser sobre
+o valor da coluna através de todos os tenants para de fato prevenir a
+colisão — a implementação do Backend (índice único parcial global, ignora
+`NULL`, coberta por teste positivo e negativo) é a leitura correta do
+objetivo real da regra, não um desvio dele.
+
+**Ações tomadas**:
+
+1. `GUARDRAILS.md` regra **A.5** corrigida de "constraint `UNIQUE` por
+   tenant" para "constraint `UNIQUE` **global**, não composta com
+   `tenant_id`", com a razão completa registrada no corpo da própria regra.
+2. Nova linha adicionada ao **Log de Alterações** de `GUARDRAILS.md`
+   (2026-09-02), com aprovação formal do CTO, conforme regras 37-38 —
+   formaliza retroativamente a exceção/correção, encerrando a lacuna de
+   governança apontada pelo QA.
+3. Nota de processo (não penalidade) registrada no mesmo Log de Alterações:
+   a implementação não deveria ter avançado sem passar por `BLOCKERS.md` e
+   por esta aprovação antes da mudança de comportamento em relação a uma
+   regra da Seção A — vale como lembrete para qualquer tarefa futura que
+   colida com uma regra de maior severidade, não como penalidade sobre esta
+   entrega (a decisão técnica em si estava certa e nenhum risco de segurança
+   foi introduzido).
+4. `TASK.md` BE-02 **avaliado, sem necessidade de alteração de redação**: a
+   tarefa já está `Concluído` e a coluna "Status" já documenta a
+   implementação correta com a justificativa completa; a coluna "Critério de
+   aceite" é registro histórico do que foi solicitado, não a fonte de
+   verdade vigente do projeto (essa é `GUARDRAILS.md`, agora corrigida).
+   `TASK.md` BE-38 (próxima tarefa a consumir `dicom_remote_ae_title`) não
+   referencia a constraint de unicidade em seu próprio critério de aceite —
+   não há risco de um leitor futuro herdar a leitura literal errada por essa
+   via.
+
+**Veredito**: correção técnica aprovada; processo de exceção formalizado
+retroativamente. Nenhuma ação adicional pendente sobre este bloqueio.
+
+- Escalado por: `qa` (durante validação de BE-02).
+- Resolvido por: `cto`, via `guardrails-governance`.
+- Artefatos alterados por esta resolução: `.md/GUARDRAILS.md` (regra A.5 +
+  Log de Alterações), `.md/BLOCKERS.md` (este registro).
+- Artefato avaliado e **não** alterado: `.md/TASK.md` (ver item 4 acima).

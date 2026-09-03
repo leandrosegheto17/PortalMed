@@ -1,0 +1,50 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  font-family: var(--font-family-base);
+}
+
+.label {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+}
+
+.cells {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.cell {
+  width: 44px;
+  min-height: 44px;
+  text-align: center;
+  font-size: 1.25rem;
+  font-family: var(--font-family-base);
+  color: var(--color-text-primary);
+  background: var(--color-bg-default);
+  border: 1px solid var(--color-text-primary);
+  border-radius: var(--radius-sm);
+}
+
+.cell:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: 2px;
+}
+
+.cellError {
+  border-color: var(--color-error);
+  border-width: 2px;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-error);
+  font-size: 0.875rem;
+}

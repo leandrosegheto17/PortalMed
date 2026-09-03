@@ -1,0 +1,89 @@
+/*
+ * Navegação Principal (paciente/administrador), UX-SPEC.md §3.1 + §6.1.
+ *
+ * Decisão de detalhe (Frontend Developer, dentro da autoridade de §6.1 —
+ * "hambúrguer ou barra inferior, decisão de detalhe do Frontend Developer"):
+ * menu hambúrguer em mobile (< 600px). A lista de itens permanece sempre no
+ * DOM (nunca desmontada por JS) — em telas >= 600px ela é sempre visível via
+ * media query, independente do estado `aria-expanded` do botão hambúrguer
+ * (que só existe visualmente abaixo de 600px).
+ */
+
+.nav {
+  position: relative;
+  font-family: var(--font-family-base);
+}
+
+.menuToggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.list {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.link,
+.signOutButton {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--spacing-xs);
+  color: inherit;
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.link[aria-current='page'] {
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.link:focus-visible,
+.signOutButton:focus-visible,
+.menuToggle:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+@media (max-width: 599px) {
+  .menuToggle {
+    display: inline-flex;
+  }
+
+  .list {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    min-width: 200px;
+    background: var(--color-bg-default);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-brand-primary);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-sm) 0;
+    z-index: 10;
+  }
+
+  .listOpen {
+    display: flex;
+  }
+}

@@ -1,0 +1,43 @@
+/* Mesmo padrão visual de `CpfField.module.css`/FE-03 — ver comentário em `TextField.tsx`. */
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  font-family: var(--font-family-base);
+}
+
+.label {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.requiredMark {
+  color: var(--color-error);
+}
+
+.input {
+  min-height: 44px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-family: var(--font-family-base);
+  font-size: 1rem;
+  color: var(--color-text-primary);
+  background: var(--color-bg-default);
+  border: 1px solid var(--color-text-primary);
+  border-radius: var(--radius-sm);
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: 2px;
+}
+
+.inputError {
+  border-color: var(--color-error);
+  border-width: 2px;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-error);
+  font-size: 0.875rem;
+}

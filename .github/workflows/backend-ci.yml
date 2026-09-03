@@ -1,0 +1,163 @@
+name: Backend CI/CD
+
+# Base original (lint-and-test) criada pelo Backend em BE-01 (TASK.md) — CI
+# basico de lint+test em todo PR. Estendido aqui pelo DevOps
+# (cicd-pipeline-configuration) com os estagios que faltavam para completar
+# o pipeline: teste de vazamento cruzado entre tenants (bloqueante,
+# GUARDRAILS.md regra A.4/BE-04), empacotamento de imagem e deploy faseado
+# (staging automatico; producao só via deploy-production.yml manual).
+#
+# Decisao de coordenacao: o job `lint-and-test` do BE-01 foi preservado
+# como estava (versao de Node, split lint:oxlint/lint:boundaries) — nao
+# reescrito do zero — para nao descartar uma escolha que ja e do dominio do
+# Backend (ADR-005 exige "Node.js LTS", sem fixar versao exata; 24.x foi a
+# decisao de detalhe do Backend). Scan de dependencia/segredo NAO duplicado
+# aqui: ja coberto de forma continua por `.github/workflows/security-scan.yml`
+# (DevSecOps, static-security-analysis) sobre backend/frontend/repositorio
+# inteiro - reexecutar o mesmo scan aqui so inflaria o tempo de pipeline sem
+# ganho.
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write # OIDC -> AWS (sem chave estatica em secret do GitHub)
+  contents: read
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  lint-and-test:
+    name: Lint + Test (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [24.x]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (oxlint — correção/estilo geral)
+        run: npm run lint:oxlint
+
+      - name: Lint (fronteira de módulo — ADR-001 / GUARDRAILS.md item 34)
+        run: npm run lint:boundaries
+
+      - name: Unit + integration tests
+        run: npm run test:cov
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+      - name: Build (falha de compilação também bloqueia o PR)
+        run: npm run build
+
+  # GUARDRAILS.md regra A.4 / SDD.md §7.4: nenhum PR que toque camada de
+  # acesso a dado e mergeado sem esta suite passando - roda em todo PR de
+  # backend (nao so quando "parece" tocar dado), para nunca depender de
+  # julgamento humano sobre o que conta como "camada de acesso a dado".
+  # Job separado do lint-and-test (nao adicionado como mais um step dele)
+  # para o motivo da falha ficar inequivoco no Checks do PR.
+  #
+  # Ajuste do Backend (BE-04, TASK.md): removido o `services: postgres` +
+  # `DATABASE_URL` do rascunho original deste job. A suite de BE-04
+  # (`test/database/tenant-cross-leak-exhaustive.e2e-spec.ts`, script
+  # `npm run test:tenant-isolation`) segue o MESMO padrao ja usado por
+  # BE-02/BE-03 (`lint-and-test` acima, job `test:e2e`): PostgreSQL real e
+  # efemero via `testcontainers`, provisionado pelo proprio processo de
+  # teste, nao por um servico do job. Um `services: postgres` paralelo
+  # ficaria orfao (a suite nunca conectaria nele, ja que testcontainers
+  # sobe o proprio container) - so inflaria o tempo/custo do job sem
+  # nenhum ganho, e a variavel `DATABASE_URL` nunca seria lida (a suite
+  # nao a consome). Docker ja esta disponivel no runner `ubuntu-latest`
+  # (o mesmo runner do job `lint-and-test` acima ja roda testcontainers
+  # com sucesso via `npm run test:e2e`), entao nenhum setup adicional e
+  # necessario.
+  tenant-isolation-test:
+    name: Teste de vazamento cruzado entre tenants (BLOQUEANTE — Gate 2 CTO)
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Suite exaustiva de vazamento cruzado entre tenants (BE-04) — 13 tabelas x guard+RLS, guard sozinho, RLS sozinha + regressao QA-DEBT-012
+        run: npm run test:tenant-isolation
+
+  build-and-push:
+    name: Build & push imagem (ECR)
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, tenant-isolation-test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+      - name: Configura credencial AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: sa-east-1
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - name: Build e push da imagem (backend/Dockerfile)
+        working-directory: backend
+        run: |
+          IMAGE="${{ steps.ecr.outputs.registry }}/portalmed-core:${{ steps.meta.outputs.tag }}"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+  deploy-staging:
+    name: Deploy automático em staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: staging # sem required reviewers — automático (staging != produção)
+    steps:
+      - name: Configura credencial AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: sa-east-1
+      - name: Atualiza serviço ECS (portalmed-staging-core)
+        run: |
+          aws ecs update-service \
+            --cluster portalmed-staging \
+            --service portalmed-staging-core \
+            --force-new-deployment
+      - name: Aguarda estabilidade (deployment_circuit_breaker reverte sozinho se falhar)
+        run: |
+          aws ecs wait services-stable \
+            --cluster portalmed-staging \
+            --services portalmed-staging-core
+      - name: Smoke test
+        run: curl -f https://staging.portalresultados.example.com.br/api/health

@@ -1,0 +1,78 @@
+/*
+ * Banner de mensagem inline (UX-SPEC.md §3.1) — a região externa (`.region`)
+ * é sempre montada pelo componente (ver MessageBanner.tsx), com altura mínima
+ * reservada via estilo inline (garantia independente de cascata CSS). Este
+ * arquivo cuida apenas da aparência da mensagem em si.
+ */
+
+.region {
+  display: flex;
+  align-items: stretch;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-family: var(--font-family-base);
+}
+
+.icon {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+}
+
+.label {
+  font-weight: 700;
+}
+
+.message {
+  flex: 1 1 auto;
+}
+
+.dismiss {
+  flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  background: transparent;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  color: inherit;
+}
+
+.dismiss:focus-visible,
+.banner a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.error {
+  color: var(--color-error);
+  border-color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 8%, var(--color-bg-default));
+}
+
+.success {
+  color: var(--color-success);
+  border-color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 8%, var(--color-bg-default));
+}
+
+.warning {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 8%, var(--color-bg-default));
+}
+
+.info {
+  color: var(--color-info);
+  border-color: var(--color-info);
+  background: color-mix(in srgb, var(--color-info) 8%, var(--color-bg-default));
+}

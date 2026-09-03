@@ -56,7 +56,19 @@ resolvido via ADR-012 antes desta submissão)
    casando o `RemoteAET` recebido na notificação do Orthanc contra
    `INTEGRATION_ENDPOINT_CONFIG.dicom_remote_ae_title` — nunca por "tenant
    único ativo" fixo em código, nem por qualquer outra heurística implícita.
-   `dicom_remote_ae_title` tem constraint `UNIQUE` por tenant. `RemoteAET`
+   `dicom_remote_ae_title` tem constraint `UNIQUE` **global** (não composta
+   com `tenant_id`) — correção de redação aprovada pelo CTO em 2026-09-02,
+   formalizando retroativamente a implementação de BE-02 (ver Log de
+   Alterações abaixo): a leitura literal anterior desta regra ("por tenant",
+   que sugeria constraint composta `(tenant_id, dicom_remote_ae_title)`) não
+   impede a colisão de AE Title **entre** tenants — exatamente o risco que
+   o próprio ADR-012 nomeia em "Negative Consequences" como motivo de existir
+   desta constraint. Só a unicidade sobre o valor da coluna através de todos
+   os tenants previne que dois hospitais cadastrem o mesmo `RemoteAET` e a
+   resolução de tenant no Imaging Gateway vire ambígua/silenciosamente
+   errada — já que é justamente esse valor, sem `tenant_id` conhecido a
+   priori, que a Aplicação Core usa para descobrir a que tenant o evento
+   pertence. `RemoteAET`
    recebido que não corresponda a nenhum `dicom_remote_ae_title` cadastrado
    **deve** ser roteado para a fila de exceção/alerta — **PROIBIDO** atribuir
    esse evento a um tenant por best-effort/palpite. Regra equivalente vale
@@ -228,6 +240,23 @@ resolvido via ADR-012 antes desta submissão)
 | Data | Proposto por | Aprovado por | Mudança | Motivo | Validade |
 |---|---|---|---|---|---|
 | 2026-09-02 | tech-lead | cto | Versão inicial deste documento (regras A a J, itens 1-39, incluindo a regra A.5/C.15 sobre resolução de `tenant_id` no Imaging Gateway via `RemoteAET`/`dicom_remote_ae_title`, derivada de ADR-012) | Primeira proposta de `GUARDRAILS.md` do projeto, extraída de `CTO-REVIEW.md` (Gate 1 e Gate 2), `SDD.md` e os 12 ADRs (incluindo ADR-012, que resolveu `BLOCKERS.md` Bloqueio 002 antes desta submissão), conforme `guardrails-drafting` — submetida junto com `TASK.md` ao Gate 3 (`capacity-and-timeline-validation`). **Aprovado com ressalvas no Gate 3 (2026-09-02)** — ver `CTO-REVIEW.md`, Gate 3, Seção 3, para a análise de cobertura por seção e as duas lacunas menores (secret management, CSRF) registradas como acompanhamento não bloqueante | Permanente |
+| 2026-09-02 | qa (achado técnico originado no backend durante BE-02; formalização de exceção sugerida em `QA-DEBT-006`, escalada em `BLOCKERS.md` Bloqueio 003) | cto | Regra **A.5** corrigida: `dicom_remote_ae_title` passa de "constraint `UNIQUE` por tenant" (redação original, sugeria composta `(tenant_id, dicom_remote_ae_title)`) para "constraint `UNIQUE` **global**, não composta com `tenant_id`" — texto integral da correção na própria regra A.5 acima. Formaliza retroativamente o comportamento já implementado em BE-02 (`backend/migrations/1788336780000_create-integration-endpoint-configs-table.ts`, documentado em `backend/docs/migrations.md`) | Releitura de `ADR-012` (seção "Negative Consequences") confirma: o risco que a constraint existe para mitigar é a colisão de AE Title **entre** tenants; uma constraint composta só impediria um tenant de repetir o próprio AE Title (cenário já impedido de outra forma, tabela 1:1 com `TENANT`) — não impede dois hospitais diferentes usando o mesmo `RemoteAET`, que é exatamente o cenário que quebraria a resolução de tenant no Imaging Gateway. A leitura literal anterior não cumpria o próprio objetivo de segurança da regra; a redação é corrigida para refletir a intenção real de ADR-012, não para abrir uma exceção temporária. Tecnicamente confirmado independentemente pelo CTO nesta revisão (não é só validação do relato do QA) e já havia sido confirmado por QA em `.md/QA-REPORT.md` Seção 1.4/`QA-DEBT-006`. `TASK.md` BE-02 avaliado e **não** requer alteração de redação: a tarefa já está `Concluído`, e a coluna "Status" já documenta a implementação correta com a justificativa completa — a redação original da coluna "Critério de aceite" é registro histórico do que foi pedido, não a fonte de verdade vigente (essa é `GUARDRAILS.md`); BE-38 (próxima tarefa a consumir esta coluna) não referencia a constraint de unicidade em seu próprio critério de aceite, então não há risco de herdar a leitura errada | Permanente |
+
+**Nota de processo (não é penalidade retroativa)**: a decisão técnica do Backend
+estava correta e não introduziu risco de segurança — mas a implementação não
+deveria ter avançado antes de abrir o bloqueio em `BLOCKERS.md` e obter esta
+aprovação, conforme as próprias regras 37-39 desta Seção J exigem para
+qualquer inconsistência entre `GUARDRAILS.md` e a intenção de um ADR,
+**principalmente** quando a regra em questão está na Seção A ("a regra de
+maior severidade deste projeto"). O comentário na migration e o registro em
+`backend/docs/migrations.md` são boa prática de documentação técnica, mas não
+substituem o mecanismo de governança formal do projeto — só uma entrada neste
+Log de Alterações, aprovada pelo CTO, vale como exceção/correção em vigor.
+Fica como lembrete de processo para qualquer implementação futura que colida
+com uma regra de maior severidade (Seção A em particular): escalar **antes**
+de divergir da redação literal, mesmo quando a divergência parecer
+tecnicamente óbvia — o julgamento de que "a leitura literal está errada"
+não é do implementador, é deste mecanismo de aprovação.
 
 **Todas as 39 regras deste documento estão em vigor a partir de 2026-09-02**
 (aprovação do CTO no Gate 3, registrada na linha acima e detalhada em

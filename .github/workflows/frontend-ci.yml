@@ -1,0 +1,108 @@
+# Pipeline de CI/CD do frontend (React/TypeScript SPA - SDD.md §3).
+# Scripts confirmados por leitura direta de frontend/package.json (FE-01):
+# `lint`, `test`, `test:coverage`, `build`.
+#
+# Scan de dependencia/segredo NAO duplicado aqui: ja coberto de forma
+# continua por `.github/workflows/security-scan.yml` (DevSecOps,
+# static-security-analysis) sobre backend/frontend/repositorio inteiro.
+
+name: Frontend CI/CD
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+defaults:
+  run:
+    working-directory: frontend
+
+env:
+  NODE_VERSION: "24" # paridade com o backend (ADR-005: "Node.js LTS", 24.x)
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+
+  unit-test:
+    name: Teste unitário + acessibilidade (WCAG 2.1 AA, RNF-06/GUARDRAILS.md #32)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run test:coverage
+      # Contrato com Frontend/QA: suite de teste inclui asserts de
+      # acessibilidade (ex.: jest-axe/testing-library) por tela, conforme
+      # UX-SPEC.md §5.1 - não um estágio de CI separado, para não criar um
+      # segundo "gate" de a11y desalinhado do QA-REPORT.md.
+
+  build:
+    runs-on: ubuntu-latest
+    needs: unit-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 7
+
+  deploy-staging:
+    name: Deploy automático em staging (S3 + invalidação CloudFront)
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: staging
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+      - name: Configura credencial AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: sa-east-1
+      - name: Sincroniza build estático com o bucket da SPA
+        run: aws s3 sync dist/ s3://portalmed-staging-spa --delete
+      - name: Invalida cache do CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ secrets.STAGING_CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/*"
