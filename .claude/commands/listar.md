@@ -1,124 +1,80 @@
 ---
-description: Relatório de status do projeto por lote de execução — lote atual, lotes concluídos e lotes pendentes. Somente leitura, não dispara agente nem avança o fluxo.
-argument-hint: ""
+description: Relatório somente leitura do status de execução por lote — lote atual, lotes validados/publicados e lotes ainda não iniciados. Não dispara agente, não avança tarefa, não pausa esperando confirmação.
+argument-hint: [opcional, sem uso hoje — reservado para filtrar por lote no futuro]
 ---
 
-# Relatório de Status por Lote
+# Status de Execução por Lote
 
-Você está respondendo a uma **consulta de status, não uma etapa de orquestração**.
-Este comando é puramente informativo: lê o estado atual do projeto e apresenta um
-relatório — não dispara nenhum agente, não avança nenhuma tarefa ou lote, não pausa
-esperando validação do usuário. A lógica de agrupamento em lote e os artefatos lidos
-são exatamente os mesmos que `.claude/commands/executar.md` usa no seu passo de
-retomada — leia `.claude/EXECUTION-FLOW.md` agora, se ainda não o tiver em contexto,
-para a definição de lote e dos estados possíveis.
+Este comando é **puramente informativo**. Não dispara nenhum agente (`Agent`), não
+avança nenhuma tarefa, não pede confirmação e não pausa esperando ação do usuário —
+lê o estado atual dos artefatos, monta o relatório e termina a resposta.
 
-## 1. Pré-requisito mínimo
+A convenção de agrupamento (coluna `Lote` na Seção 3 do TASK.md) e a lógica de
+status são as mesmas que `.claude/commands/executar.md`, `validar.md` e
+`deploy.md` usam — leia `.claude/EXECUTION-FLOW.md` agora, antes de fazer qualquer
+outra coisa, se ainda não o tiver em contexto, para usar exatamente os mesmos
+critérios.
 
-Confirme que `.md/TASK.md` existe. Se não existir, informe que a fase de
-planejamento ainda não produziu o `TASK.md` (rode `/planejar` primeiro) e pare —
-não há nada mais a reportar.
+**Sem resumo persistido**: o "resumo de lote" que `/executar`/`/validar`/`/deploy`
+apresentam ao final não é salvo em nenhum arquivo — é montado ao vivo a partir dos
+artefatos. Este comando faz o mesmo cálculo, sempre a partir do estado atual em
+disco, nunca da conversa.
 
-## 2. Ler os lotes definidos
+## 1. Ler o estado
 
-Leia a Seção 4 do `TASK.md`, subseção **"Lotes de Entrega"** — cada lote nomeado,
-as tarefas (por ID) que o compõem, e a dependência entre lotes quando existir, na
-ordem de execução prevista.
+1. Se `.md/TASK.md` não existir, informe que não há execução em andamento (rode
+   `/planejar` e `/definir_organizar` primeiro) e pare.
+2. Leia a Seção 3 do `.md/TASK.md` e agrupe as tarefas por `Lote`, na ordem em que
+   aparecem no documento. Leia também a Seção 4 (dependências e marcação de
+   paralelismo) para identificar dependência entre lotes.
+3. Leia `.md/QA-REPORT.md`, `.md/SECURITY-REVIEW.md` e `.md/DEPLOY.md` (os que
+   existirem) para o veredito e o status de publicação de cada lote.
+4. Leia `.md/BLOCKERS.md` (se existir) para entradas `Aberto` afetando alguma
+   tarefa de algum lote.
 
-**Caso de guarda**: se essa subseção não existir (formato de `TASK.md` anterior à
-convenção de lote), informe explicitamente que este projeto ainda não tem lotes
-definidos e que o `tech-lead` precisa ser re-acionado para agrupar as tarefas já
-decompostas antes deste relatório fazer sentido. Pare aqui — não infira agrupamento
-por conta própria.
+## 2. Classificar cada lote
 
-## 3. Determinar o status de cada lote
+Para cada lote identificado, na ordem do documento:
 
-Para cada lote de "Lotes de Entrega", cruze:
+- **Publicado**: o lote aparece em `.md/DEPLOY.md` com deploy realizado (staging
+  e/ou produção).
+- **Validado**: todas as tarefas `Concluída` **e** o Validador aprovou
+  funcionalmente (`QA-REPORT.md`, Aprovado/Aprovado com ressalvas) **e** aprovou
+  em segurança (`SECURITY-REVIEW.md`, Aprovado/Aprovado com débito) **e** o
+  Coordenador confirmou a checagem estrutural — pronto para `/deploy`, mas ainda
+  não publicado.
+- **Bloqueado**: há entrada `Aberto` em `BLOCKERS.md` afetando alguma tarefa do
+  lote — reporta independente do que os outros critérios indicariam.
+- **Em andamento**: alguma tarefa `Concluída` ou `Em andamento`, mas o lote não se
+  qualifica como `Validado`/`Publicado` nem está bloqueado.
+- **Não iniciado**: nenhuma tarefa `Concluída` nem `Em andamento`.
+- **Indeterminado**: as informações disponíveis não bastam para decidir com
+  confiança (ex.: tarefa sem coluna `Lote` preenchida, `QA-REPORT.md` referencia um
+  lote que não existe mais no `TASK.md`, ou dado contraditório entre artefatos).
+  Nunca presuma um status nesse caso — reporte como indeterminado e diga o motivo.
 
-- Seção 3 do `TASK.md` — status de cada tarefa que compõe o lote (`A Fazer` /
-  `Em andamento` / `Bloqueada` / `Concluída`).
-- `.md/LOTE-LOG.md` (se existir) — uma entrada aqui significa que o lote já teve
-  aprovação do Tech Lead registrada (ver `tech-lead.md`).
-- `.md/QA-REPORT.md` e `.md/SECURITY-REVIEW.md` (se existirem) — vereditos de QA/
-  DevSecOps sobre um lote que ainda não tem entrada em `LOTE-LOG.md` (aprovação
-  parcial, Tech Lead pendente).
-- `.md/BLOCKERS.md` (se existir) — entradas `Aberto` que afetem alguma tarefa do
-  lote.
+Só pode haver **um** lote "atual": o primeiro `Em andamento` na ordem do
+documento; se nenhum lote está `Em andamento` ou `Bloqueado`, o "atual" é o
+primeiro `Não iniciado` cujas dependências (Seção 4) já estejam satisfeitas —
+rotulado como "próximo a começar".
 
-Classifique cada lote em um destes estados — nunca presuma, sinalize incerteza
-explicitamente (ver o estado "Indeterminado" abaixo) em vez de adivinhar:
+## 3. Apresentar o relatório
 
-- **Concluído**: tem entrada em `LOTE-LOG.md` (Tech Lead já aprovou o lote).
-- **Bloqueado**: tem entrada `Aberto` em `BLOCKERS.md` afetando alguma tarefa dele
-  — reporte junto com o estado de progresso real (um lote pode estar "em
-  andamento, bloqueado"), não como substituto do detalhe de tarefas.
-- **Em andamento**: ao menos uma tarefa `Concluída` ou `Em andamento`, mas ainda
-  sem entrada em `LOTE-LOG.md` — inclui o caso em que todas as tarefas já estão
-  `Concluída` e QA/DevSecOps já aprovaram, faltando só a aprovação do Tech Lead.
-- **Não iniciado**: todas as tarefas do lote estão `A Fazer`, sem bloqueio.
-- **Indeterminado**: a informação disponível é insuficiente ou inconsistente para
-  classificar com confiança (ex.: uma entrada de `LOTE-LOG.md`/`QA-REPORT.md`
-  referencia um lote ou tarefa que não bate com "Lotes de Entrega" do `TASK.md`).
-  Reporte o motivo específico, nunca escolha um dos outros quatro estados por
-  aproximação.
+Nesta ordem, sem pedir nada ao final:
 
-**Lote atual**: o primeiro lote **em andamento**, na ordem de "Lotes de Entrega";
-se nenhum estiver em andamento, o primeiro **não iniciado** cujas dependências de
-outros lotes já estão satisfeitas (todos os lotes dos quais ele depende estão
-`Concluído`).
+1. **Lote atual** (em andamento, bloqueado, ou "próximo a começar"): nome/descrição
+   do lote, cada tarefa que o compõe com seu status individual, e todo bloqueio
+   ativo relevante (o quê, desde quando — mesma informação que `BLOCKERS.md` já
+   guarda).
+2. **Lotes validados, ainda não publicados**: uma linha por lote — nome, veredito
+   do QA, veredito do DevSecOps, e a nota "pronto para /deploy".
+3. **Lotes publicados**: uma linha por lote — nome, ambiente(s) (staging/produção),
+   data, se disponível.
+4. **Lotes não iniciados**: na ordem de execução prevista pelo `TASK.md`, com a
+   dependência entre lotes quando houver (ex.: "depende de: Lote 2").
+5. **Indeterminados**, só se houver algum: lista separada, cada item com o motivo
+   pontual de não ter sido possível classificar.
 
-## 4. Apresentar o relatório
-
-Monte a resposta exatamente nesta estrutura (adapte os valores, mantenha a forma).
-Use `⚠` só nos dois casos de alerta (bloqueio ativo, lote indeterminado) — sem
-outros emojis:
-
-```
-Status do projeto — [N] de [M] lotes concluídos
-
-## Lote atual — <Nome do Lote> (Em andamento | Próximo a começar)
-[⚠ Bloqueado — ver abaixo, se aplicável]
-
-| Tarefa | Trilha | Status |
-|---|---|---|
-| <ID> | Backend/Frontend/Mobile | <status> |
-...
-
-[Se houver bloqueio ativo:]
-Bloqueio ativo: <descrição curta> — parado há <tempo>, calculado a partir da data
-da entrada correspondente em BLOCKERS.md.
-
-[Se todas as tarefas estão Concluída mas o lote ainda não tem entrada em LOTE-LOG.md:]
-QA: <veredito> · DevSecOps: <veredito> · Tech Lead: pendente
-
-## Lotes concluídos (<N>)
-- <Nome do Lote> — <veredito do Tech Lead> · deploy: <status resumido de staging/produção>
-...
-
-## Lotes pendentes (<M - N - (1 se houver lote atual não iniciado)>), na ordem de execução
-- <Nome do Lote> — depende de: <lote(s) do qual depende, ou "sem dependência declarada">
-...
-
-[Se algum lote ficou Indeterminado:]
-⚠ Não foi possível determinar o status de <Nome do Lote> com confiança: <motivo>
-```
-
-Regras de conteúdo:
-
-- **Lote atual**: mostre o detalhamento tarefa a tarefa (única seção com esse
-  nível de detalhe).
-- **Lotes concluídos**: uma linha cada, sem reabrir detalhe de tarefa — puxe o
-  veredito e o resultado de deploy diretamente da entrada correspondente em
-  `.md/LOTE-LOG.md` (o resumo compacto que o `/executar` já produziu ao fechar
-  aquele lote), não relea relatórios de QA/DevSecOps/dispatch daquele lote para
-  reconstruir o que já está resumido.
-- **Lotes pendentes**: uma linha cada, na ordem de "Lotes de Entrega", com a
-  dependência declarada quando existir.
-- Se não houver nenhum lote concluído ainda, ou nenhum lote pendente (projeto no
-  último lote), omita a seção correspondente em vez de mostrá-la vazia.
-
-## 5. Encerramento
-
-Termine a resposta no relatório acima. **Não faça pergunta de acompanhamento,
-não ofereça avançar o fluxo, não pause esperando validação** — se o usuário quiser
-agir sobre o que foi mostrado, ele aciona `/executar` separadamente.
+Termine a resposta no relatório — não sugira rodar `/executar`, `/validar` ou
+`/deploy`; se o usuário quiser agir sobre o que foi mostrado, ele decide o próximo
+passo.
