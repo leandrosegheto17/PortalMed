@@ -656,3 +656,580 @@ enquanto este achado estiver aberto — tarefas de domínio que não tocam essas
 duas tabelas especificamente não são impactadas pela parte técnica deste
 achado (o guard/RLS geral segue confirmado correto), mas o veredito de lote
 como um todo permanece Reprovado até a correção.
+
+### 9. Revalidação de `SEC-BUG-001` (devsecops, 2026-09-04)
+
+Revalidação pontual e independente da correção aplicada pelo Backend
+(nota de correção pós-implementação de BE-03/BE-04, `TASK.md`, 2026-09-03),
+não uma reauditoria completa do lote — as demais 4 skills já haviam sido
+executadas na auditoria original (Seções 1-8 acima) e não encontraram
+outro achado além deste.
+
+**Verificação por leitura direta de código** (não apenas o relato do
+Backend):
+
+1. `backend/migrations/1788336900000_create-app-database-role.ts` lido
+   linha a linha: `DOMAIN_TABLES` (13 tabelas) agora é particionada em
+   `APPEND_ONLY_TABLES` (`audit_events`, `consent_records`) e
+   `FULL_PRIVILEGE_DOMAIN_TABLES` (as 11 restantes, via `.filter()` sobre
+   a mesma fonte única de verdade). `up()` concede `['SELECT', 'INSERT']`
+   às duas tabelas append-only e `['SELECT', 'INSERT', 'UPDATE', 'DELETE']`
+   às 11 demais; `down()` reverte simetricamente, na ordem inversa correta.
+   Nenhuma regressão de escopo oposto (as 11 tabelas não perderam
+   privilégio).
+2. `backend/docs/tenant-guard-and-rls.md` (linhas ~163-195): redação
+   corrigida — não afirma mais uma exceção que não existia; documenta
+   `SEC-BUG-001`, a correção aplicada e referencia o teste de regressão
+   permanente.
+3. `backend/test/database/tenant-guard-and-rls.e2e-spec.ts`, bloco
+   `[SEC-BUG-001]` (linhas 523-681) lido por completo: `has_table_privilege`
+   confirma `SELECT`/`INSERT` = `true` e `UPDATE`/`DELETE` = `false` para as
+   2 tabelas append-only, e privilégio completo mantido para as 11 demais
+   (nenhuma regressão de escopo oposto, verificado também por teste, não só
+   pela migration). Tentativa real de `UPDATE`/`DELETE`/`INSERT`/`SELECT`
+   via `pg.Client` cru como `portalmed_app` sobre linhas reais de
+   `audit_events`/`consent_records`: `SELECT`/`INSERT` funcionam,
+   `UPDATE`/`DELETE` são rejeitados com `rejects.toThrow(/permission
+   denied/i)` — o erro vem do próprio Postgres (checagem de `GRANT`), não de
+   RLS nem de validação de aplicação.
+4. `backend/test/database/tenant-cross-leak-exhaustive.e2e-spec.ts`:
+   reparticionamento em `MUTATION_CAPABLE_TABLES` (11 tabelas, mantém a
+   asserção original "operação roda mas afeta 0 linhas", contenção via RLS)
+   e `APPEND_ONLY_TABLES` (2 tabelas, nova asserção
+   `rejects.toThrow(/permission denied/i)`) confirmado nas 3 Camadas onde
+   aplicável (Camada 1 — guard+RLS via `portalmed_app`; Camada 3 — RLS
+   sozinha via `pg.Client` cru como `portalmed_app`). **Camada 2 (conexão
+   do superusuário do container) permanece com `it.each(DOMAIN_TABLES)`
+   sem alteração** — correto: superusuário sempre ignora verificação de
+   `GRANT`, do mesmo jeito que já ignora RLS, então não haveria erro de
+   permissão a esperar ali.
+5. Grep por `audit_events`/`consent_records` em `backend/migrations/` e
+   `backend/src/database/`: nenhum outro ponto do repositório concede
+   privilégio de banco a essas tabelas por outro caminho — os únicos
+   arquivos de migration que as referenciam são as próprias migrations de
+   criação das tabelas (`1788336660000_create-audit-events-table.ts`,
+   `1788336360000_create-consent-records-table.ts`, que não fazem
+   `GRANT`/`REVOKE`) e a migration de role já revisada no item 1;
+   `backend/src/database/` não contém nenhum `GRANT`/privilege management
+   (a camada de acesso a dado ali é só Kysely/repositório, sem DDL/DCL).
+
+**Reexecução independente da suíte (não apenas leitura)** — ambiente
+suporta Docker/testcontainers, então rodei as suítes eu mesmo em vez de só
+confiar no relato do Backend:
+
+- `npx vitest run --config ./vitest.config.e2e.ts test/database/tenant-guard-and-rls.e2e-spec.ts`
+  → **48 testes, todos passando** (inclui o bloco `[SEC-BUG-001]` completo).
+- `npm run test:tenant-isolation` (`tenant-cross-leak-exhaustive.e2e-spec.ts`)
+  → **158 testes, todos passando** (mesma contagem reportada pelo Backend,
+  confirmando que o reparticionamento preservou a cobertura total).
+- `npm run test:e2e` (suíte completa) → **268 testes, todos passando**
+  (o Backend reportou 264; a diferença de 4 não afeta a conclusão desta
+  revalidação — todos os testes relacionados a `SEC-BUG-001` estão entre os
+  268 e passam; a suíte completa está verde sem nenhuma falha, então a
+  contagem residual não é um sinal de regressão de segurança).
+
+**Nenhum achado residual.** A correção elimina o privilégio de `UPDATE`/
+`DELETE` no nível de banco (não apenas de aplicação), com teste de
+regressão permanente em duas suítes independentes, sem regressão de escopo
+nas 11 tabelas restantes e sem efeito colateral na Camada 2 da suíte de
+BE-04.
+
+**Veredito final do Lote 3: Aprovado.**
+
+- Nenhum achado de severidade Alta/Crítica em aberto — `SEC-BUG-001` está
+  corrigido e revalidado por leitura de código e reexecução independente da
+  suíte.
+- Nenhum achado de compliance obrigatório (LGPD, RN-02/RN-08) pendente —
+  a restrição append-only de `AUDIT_EVENT`/`CONSENT_RECORD` está em vigor
+  no nível de banco, não apenas de aplicação.
+- Nenhum débito de severidade Baixa/Média novo a registrar nesta
+  revalidação.
+- Requisitos de segurança operacional para o DevOps permanecem os já
+  registrados nas Seções 1-6 acima (gestão de `APP_DB_ROLE_PASSWORD` via
+  secret manager, `SEC-DEBT-002`, etc.) — nenhum requisito novo introduzido
+  por esta correção.
+- `BLOCKERS.md` Bloqueio 004 atualizado para `Resolvido` nesta mesma data.
+
+---
+
+## Lote 2 — Integração com Sistemas do Hospital (Motor HL7/FHIR e Imaging Gateway)
+
+**Tarefas no escopo** (`TASK.md` §4.1.1): BE-06 (Setup Integration Engine —
+NextGen Connect/Mirth Connect, canal HL7 v2.x MLLP real, ACL), BE-07 (Setup
+Imaging Gateway — Orthanc, C-STORE real, conversão JPEG/PNG assíncrona via
+BullMQ, integração com Object Storage), BE-09 (`ServiceApiKeyGuard`,
+credencial de serviço dedicada nos 4 endpoints internos). Sem tarefas de
+Frontend neste lote.
+
+**Gatilho de validação**: `QA-REPORT.md` Seção 6, veredito **Aprovado com
+ressalvas** (2026-09-04) — as 3 tarefas confirmadas `Concluído` em
+`TASK.md` (incluindo o histórico completo de correção pós-implementação de
+BE-07, duplicação de leitura de `RedisConfig`, e de BE-09, nome de variável
+`INTERNAL_SERVICE_API_KEY`), nenhum bug de severidade Alta/Crítica em
+aberto, 1 débito novo de severidade Média (`QA-DEBT-017`, BE-07 — ausência
+de `attempts`/`backoff` na fila `imaging-conversion`).
+
+**Referências de arquitetura usadas nesta auditoria**: `SDD.md` ADR-002
+(Integration Engine, build-vs-buy), ADR-003 (Orthanc/Imaging Gateway,
+build-vs-buy), ADR-012 (rastreabilidade DICOM + resolução de `tenant_id`
+via AE Title — BE-38 ainda não implementada), §7.4 (isolamento
+multi-tenant), §7.5 (superfície de exposição — Integration/Imaging Gateway
+em rede privada); `GUARDRAILS.md` Seção C completa (itens 11-15 —
+proibição de parser HL7/DICOM próprio, serviços de borda fora do processo
+do core sem acesso direto ao banco, credencial de serviço dedicada, nunca
+exposição pública, Orthanc sem customização de tenant), regra A.5
+(proibição de atribuição implícita/hardcoded de `tenant_id`), item 22
+(dado de saúde criptografado em repouso em duas camadas); `CTO-REVIEW.md`
+Gate 2 (`risk-and-compliance-check`); `QA-REPORT.md` Seção 6 completa
+(6.1-6.7, incluindo a bateria adversarial própria do QA e o achado ancilar
+de IAM sinalizado na Seção 6.6).
+
+**Código revisado**: `backend/src/integration-engine/` (10 arquivos,
+inclusive specs), `backend/src/imaging-gateway/` (10 arquivos, inclusive
+specs), `backend/src/security/` (guard, config, module, tokens),
+`backend/integration-engine/` (canal XML + `deploy-channel.mjs`),
+`backend/imaging-gateway/on-stable-study.lua`, `backend/src/main.ts`,
+`backend/docs/{integration-engine,imaging-gateway,service-api-key-auth}.md`,
+e — como contexto de requisito operacional para o DevOps —
+`infra/modules/network/main.tf`, `infra/modules/ecs-service/main.tf`,
+`infra/environments/{staging,production}/main.tf` (serviços
+`integration_gateway_service`/`imaging_gateway_service`/`core_service`).
+
+### 1. `static-security-analysis` (revisão pontual, escopo deste lote)
+
+Não reconfigurado — em vigor desde o início do repositório. Verificação
+substituta desta rodada, restrita aos diretórios deste lote:
+
+- Varredura manual por padrão perigoso (`eval(`, `child_process`, `new
+  Function(`, execução de comando externo fora do já conhecido `docker run`
+  de teste) em `backend/src/integration-engine/`,
+  `backend/src/imaging-gateway/`, `backend/src/security/` — **nenhuma
+  ocorrência** em código de produção (o único `child_process`/`docker run`
+  do repositório está em `backend/test/imaging-gateway/dicom-test-fixture.ts`,
+  fixture de teste, não código de runtime).
+- Nenhuma credencial hardcoded em nenhum dos três diretórios — confirmado
+  por leitura linha a linha; `INTERNAL_SERVICE_API_KEY` sempre lida de
+  `env`, default de desenvolvimento explicitamente documentado como
+  provisório (mesmo padrão já aceito para `APP_DB_ROLE_PASSWORD`), nunca
+  literal fora de `.env.example`/specs.
+- **Achado desta rodada, tratado em detalhe na Seção 4 abaixo**: log de
+  dado sensível (`console`/`Logger`) — ao contrário das auditorias
+  anteriores (Lote 1/Lote 3, onde nenhuma superfície de logging existia
+  ainda), este lote introduz a primeira ocorrência real do projeto de
+  `Logger.log` sobre um payload que carrega dado de saúde identificável.
+  Não é um padrão de código perigoso genérico (não é injeção/execução) —
+  por isso classificado como achado de `sensitive-data-exposure-check`/
+  `compliance-validation`, não de SAST puro.
+- Recomendação já registrada nos lotes anteriores mantida: confirmar
+  diretamente no GitHub Actions que `secret-scan`/`sast` estão verdes para
+  os commits deste lote — segue coberto por `SEC-DEBT-001` (Lote 1, ainda
+  em aberto, sem prazo vencido).
+
+### 2. `security-requirement-validation`
+
+| Requisito | Fonte | Verificação | Resultado |
+|---|---|---|---|
+| Credencial de serviço dedicada nos 4 endpoints internos, nunca credencial de usuário final | GUARDRAILS item 13 | `ServiceApiKeyGuard` (`service-api-key.guard.ts`) aplicado via `@UseGuards` a nível de **classe** nos 4 controllers (`IntegrationEngineController`, `CoreIngestPlaceholderController`, `ImagingGatewayController`, `CoreImagingIngestPlaceholderController`) — nenhuma rota escapa do guard dentro de cada controller (confirmado por leitura direta, não há `@Get`/rota adicional sem o decorator de classe). Comparação via hash SHA-256 + `crypto.timingSafeEqual` (não `===`, não `timingSafeEqual` direto sobre buffers de tamanho variável) — elimina vazamento de conteúdo e de tamanho da chave esperada; falha sempre retorna mensagem genérica (401), sem distinguir motivo. Nenhum mecanismo de bypass encontrado: o guard não tem modo de desenvolvimento que pule a checagem, não há rota alternativa para os mesmos 4 recursos, e os 3 emissores reais (canal NextGen Connect real, script Lua do Orthanc real, ACLs do core) enviam o header corretamente — confirmado tanto por leitura de código quanto pela suíte e2e reexecutada (Seção 4 abaixo) | **Atendido, sem bypass encontrado** |
+| Canal de rede não exposto publicamente (`SDD.md` §7.5, GUARDRAILS item 14) | SDD.md §7.5, GUARDRAILS 14 | `infra/modules/network/main.tf`: `aws_security_group.integration` só aceita entrada nas portas 6661 (MLLP)/4242 (DICOM C-STORE) via `dynamic ingress` condicionado a `enable_hospital_channel == true` **e** CIDR explícito (`hospital_vpn_cidr`/`dicom_source_cidr`) — nunca `0.0.0.0/0` (confirmado por leitura direta, linhas 237-256); restante do tráfego de entrada vem exclusivamente de `aws_security_group.app` (linha 209). `infra/environments/{staging,production}/main.tf`: `integration_gateway_service`/`imaging_gateway_service` não recebem `load_balancer`/`target_group_arn` (só `core_service` tem); usam `service_discovery_registry_arn` (Service Connect interno), não ALB público. Nenhuma das 3 tarefas deste lote altera arquivo `.tf` (confirmado por `git log`/notas de status) | **Atendido** |
+| Serviços de borda nunca acessam o banco do core diretamente (GUARDRAILS item 13) | GUARDRAILS 13 | Nenhuma importação de `kysely`/`pg`/`DatabaseModule` em `src/integration-engine/`, `src/imaging-gateway/`, `src/security/` (confirmado por grep) — toda comunicação com o core é via HTTP real para `/internal/ingest`/`/internal/imaging-ingest`, nunca acesso direto a dado | **Atendido** |
+| Orthanc permanece produto de mercado genérico, sem customização de tenant (GUARDRAILS item 15) | GUARDRAILS 15 | `on-stable-study.lua` só lê `RemoteAET` nativo via API REST do Orthanc e propaga o valor bruto — nenhuma lógica de resolução de tenant, nenhum plugin custom, nenhuma configuração de múltiplos AE Titles locais simultâneos no Orthanc. Confirmado por leitura completa do script | **Atendido** |
+| Nenhuma atribuição implícita/hardcoded de `tenant_id` introduzida por BE-06/BE-07 (GUARDRAILS regra A.5, ADR-012) | GUARDRAILS A.5, ADR-012 | Grep por `tenant`/`tenant_id` em `src/integration-engine/` — **nenhuma ocorrência** (o módulo nem menciona o conceito, correto — BE-06 não lida com dado já multi-tenant, a Integration Engine de hoje serve um único canal HL7 do hospital piloto). Grep em `src/imaging-gateway/` — as únicas ocorrências são comentários **explícitos** documentando que a resolução de tenant é **fora de escopo** desta tarefa (`orthanc-stable-instance-notification.ts` linhas 17-21, `core-imaging-ingest-placeholder.controller.ts` linhas 10-11, `imaging-gateway-config.ts` linha 32) — nenhuma variável de ambiente do tipo `DEFAULT_TENANT_ID`/`SINGLE_TENANT_ID`, nenhum valor fixo de tenant em nenhum ponto do payload canônico (`CanonicalImagingNotificationMessage` carrega `remoteAet` + UIDs, nunca um `tenant_id` calculado). A decomposição de tarefa já prevista (BE-38 resolve `tenant_id` casando `remoteAet` contra `INTEGRATION_ENDPOINT_CONFIG.dicom_remote_ae_title`) permanece intacta — nenhuma suposição de "tenant único" precisaria ser desfeita quando BE-38 chegar, ao contrário do que a nota histórica de `TASK.md` já registrou ter sido cogitado e descartado antes desta submissão (ver `TASK.md` §4.4, linha ~795) | **Atendido — nenhuma atribuição implícita encontrada** |
+| Toda infraestrutura com dado de saúde em região Brasil (GUARDRAILS item 24, ADR-010) | GUARDRAILS 24 | Este lote não introduz novo componente de dado em repouso (Integration/Imaging Gateway são serviços de tradução/borda, sem banco próprio) — infraestrutura de rede/ECS já herdada da região `sa-east-1` confirmada no Lote 1. Nenhuma nova região introduzida | **Atendido (sem novo componente a validar)** |
+
+### 3. `compliance-validation` (LGPD, nível de implementação)
+
+Este é o **primeiro lote do projeto que efetivamente transporta dado de
+saúde real** (resultado de exame via HL7, referência a imagem DICOM) entre
+sistemas externos do hospital e o core — diferente de Lote 1 (fundação,
+sem dado de saúde) e Lote 3 (infraestrutura de acesso a dado, sem novo
+fluxo de dado).
+
+- **Resultado de exame (BE-06) — `CanonicalExamResultMessage`**: carrega
+  `patient.identifier`/`patient.name` (identificação direta do titular) +
+  `exam.code`/`exam.name`/`result.value`/`result.unit` (dado de saúde,
+  LGPD Art. 5º, II — categoria sensível, Art. 11). **Ver achado de
+  compliance obrigatório não resolvido, `SEC-BUG-002`, Seção 4 abaixo** —
+  este payload completo é gravado em log de aplicação em texto plano no
+  placeholder `CoreIngestPlaceholderController`, sem necessidade
+  demonstrada para a finalidade de observabilidade da própria tarefa.
+- **Notificação de imagem (BE-07) — `CanonicalImagingNotificationMessage`**:
+  carrega `remoteAet` + 3 UIDs DICOM + chave do Object Storage — **não**
+  contém nome/identificador do paciente (confirmado por leitura da
+  interface, `canonical-imaging-notification-message.ts`); UIDs DICOM são
+  identificadores técnicos do estudo/série/instância, não dado cadastral
+  do titular por si só (mesma leitura já aceita por QA/DevSecOps para
+  `exam_files.dicom_sop_instance_uid` em BE-02, armazenado sem
+  criptografia de coluna). O log correspondente
+  (`CoreImagingIngestPlaceholderController`, linha 37) também faz
+  `JSON.stringify(body)`, mas como o conteúdo não inclui dado pessoal
+  identificável, **não gera achado de compliance** — só um ponto de
+  atenção de estilo (ver Seção 6, requisito operacional).
+- **Consistência com a garantia futura de `pgcrypto`/RLS (BE-02/BE-03/BE-04)**:
+  nenhuma das duas ACLs deste lote persiste dado em banco (BE-24/BE-38 o
+  farão) — nada aqui compromete a garantia já validada de que CPF/dado
+  cadastral sensível será criptografado em repouso quando a persistência
+  real acontecer. O achado de log (`SEC-BUG-002`) é ortogonal a essa
+  garantia (a fuga de dado acontece antes/fora do banco, no log de
+  aplicação) — **por isso não é mitigado** pelo trabalho já validado de
+  `pgcrypto`/RLS, precisa de correção própria.
+- **`GUARDRAILS.md` item 27** (proibição de dado de saúde em corpo de
+  e-mail transacional) não se aplica a este lote (nenhum e-mail é
+  disparado por BE-06/07/09) — citado aqui só para registrar que o
+  princípio de "canal sem proteção adequada para dado de saúde" que
+  fundamenta aquela regra é o mesmo princípio que fundamenta `SEC-BUG-002`
+  abaixo, aplicado a um canal diferente (log de aplicação, não e-mail).
+
+**Veredito de compliance para o Lote 2**: **1 achado de compliance
+relevante pendente de resolução** (`SEC-BUG-002` — dado de saúde
+identificável logado em texto plano, sem necessidade demonstrada,
+violação do princípio de minimização de dado da LGPD, Art. 6º, III,
+aplicado à categoria de dado mais sensível prevista em lei, Art. 11) —
+impede veredito de aprovação incondicional do lote, conforme guardrail
+deste agente.
+
+### 4. `sensitive-data-exposure-check`
+
+#### Achado de severidade Alta (`SEC-BUG-002`) — dado de saúde identificável logado em texto plano em `CoreIngestPlaceholderController` (BE-06), sem camada de proteção equivalente à do banco
+
+**O que o código faz** (`backend/src/integration-engine/core-ingest-placeholder.controller.ts`, linha 43-45):
+
+```ts
+this.logger.log(
+  `[BE-06 placeholder — lógica real de negócio é BE-24] Mensagem canônica recebida em /internal/ingest: ${JSON.stringify(body)}`,
+);
+```
+
+`body` é o `CanonicalExamResultMessage` inteiro — `patient.identifier`,
+`patient.name` (identificação direta do titular), `exam.code`/`exam.name`,
+`result.value`/`result.unit` (resultado clínico, dado de saúde, LGPD Art.
+11). Este `Logger.log` (nível `log`, não `debug`) roda em **todo** request
+real a este endpoint — confirmado por leitura direta do fluxo completo:
+`IntegrationEngineController.receiveEngineNormalizedMessage` →
+`IntegrationEngineAclService.publishToCore` (HTTP real) →
+`CoreIngestPlaceholderController.receive` (este log). O teste e2e contra a
+engine real (`hl7v2-channel.e2e-spec.ts`) exercita exatamente este
+caminho com uma mensagem HL7 ORU^R01 sintética — ou seja, o comportamento
+já é exercitado de ponta a ponta pela própria suíte do projeto, não é uma
+hipótese teórica.
+
+**Por que isto é um achado, não uma decisão de detalhe aceitável**:
+
+1. **Nenhuma necessidade demonstrada para o nível de detalhe logado.** O
+   próprio módulo já demonstra a disciplina correta em três outros
+   pontos: `ImagingGatewayController` loga só `sopInstanceUid`/`remoteAet`
+   (identificadores técnicos, nunca dado do paciente);
+   `ImagingConversionProcessor` loga só `sopInstanceUid`/`objectStorageKey`;
+   `IntegrationEngineController` loga só `messageControlId` (não o
+   payload). O placeholder de BE-06 é o único ponto do lote que faz
+   `JSON.stringify` do payload inteiro — inconsistente com o padrão que o
+   restante do próprio código já estabelece, e sem justificativa registrada
+   em comentário para essa exceção.
+2. **Nenhuma camada compensatória equivalente à do banco.** `pgcrypto`
+   (coluna) e RLS (linha/tenant) protegem CPF/dado de domínio em
+   PostgreSQL — nada equivalente protege este log: `infra/modules/
+   ecs-service/main.tf` (linha 13-16) cria o `aws_cloudwatch_log_group`
+   sem `kms_key_id` (só criptografia gerenciada padrão da AWS, não a
+   mesma disciplina de KMS dedicado já aplicada a RDS/S3/Secrets Manager
+   nos Lotes 1/3), com `retention_in_days` default de 30 dias
+   (`variables.tf` linha 91-94) — nenhum controle de acesso equivalente ao
+   escopo restrito da role de banco `portalmed_app` (acesso a CloudWatch
+   Logs tipicamente é mais amplo entre a equipe de engenharia/operação do
+   que acesso à role de aplicação do banco).
+3. **Compliance obrigatório, não requisito antecipado.** Diferente de um
+   caso onde nada foi implementado ainda, aqui o log **já executa** sobre
+   dado de saúde real a cada mensagem processada — viola o princípio de
+   minimização de dado (LGPD Art. 6º, III, "adequação... limitado ao
+   mínimo necessário") aplicado à categoria de dado que a própria LGPD
+   trata com rigor reforçado (Art. 11, dado sensível de saúde). Por
+   guardrail deste agente, achado de compliance obrigatório não vira
+   débito registrado — precisa estar resolvido antes da aprovação do
+   lote.
+4. **Nenhum teste cobre/impede este comportamento.** Busca textual em
+   `backend/test/` não encontrou nenhuma asserção sobre o conteúdo do log
+   deste endpoint (os testes verificam o `response.body`/status HTTP, não
+   o que é escrito no logger) — nada impediria uma regressão futura na
+   direção oposta (ex.: alguém "melhorar observabilidade" adicionando
+   ainda mais campos ao log).
+
+**Por que severidade Alta, não Média**: (a) exposição ativa e recorrente
+de dado de saúde identificável (nome + identificador do titular + valor
+clínico), não uma lacuna teórica — o caminho já é exercitado por HL7 real
+em todo request; (b) fundamento de compliance obrigatório (LGPD, dado
+sensível de saúde), mesma categoria de fundamento que já justificou
+severidade Alta no Lote 3 (`SEC-BUG-001`); (c) nenhuma camada
+compensatória ativa (log sem KMS dedicado, sem controle de acesso restrito
+equivalente ao de banco, retenção de 30 dias); (d) o próprio código do
+lote demonstra que a disciplina correta (logar só identificador técnico,
+nunca dado do paciente) já é conhecida e aplicada em três outros pontos —
+não é uma lacuna de conhecimento, é uma inconsistência isolada e
+facilmente corrigível; (e) a correção é pequena, isolada e não depende de
+BE-24 (substituir o `JSON.stringify(body)` por um log que cite só
+`messageControlId`/`sourceSystem`/`schemaVersion`, mesmo padrão já usado
+pelo próprio `IntegrationEngineController`).
+
+**Correção recomendada ao Backend** (não prescritiva sobre a forma exata):
+em `core-ingest-placeholder.controller.ts`, trocar o log de
+`JSON.stringify(body)` por um log que cite apenas campos não-identificáveis
+(`schemaVersion`, `sourceSystem`, `messageType`, `messageControlId`) — mesmo
+nível de detalhe já usado por `IntegrationEngineController` para o mesmo
+fluxo. Se observabilidade do conteúdo completo for genuinamente necessária
+para depuração, considerar nível `debug` (não `log`) **e** mascaramento de
+`patient.identifier`/`patient.name` (nunca o valor pleno), com decisão
+registrada explicitamente — não prescritivo, decisão de detalhe do
+Backend. Recomenda-se também um teste de regressão (spy no logger,
+assertando que `patient`/`result` não aparecem na mensagem logada) para
+que uma futura tarefa (BE-24, ao substituir este controller) não
+reintroduza o mesmo padrão.
+
+#### Achado de severidade Média (`SEC-DEBT-003`) — excesso de privilégio IAM em `imaging_gateway_service` (`s3:PutObject`), fora do escopo direto de BE-06/07/09 mas confirmado nesta auditoria
+
+Achado originalmente sinalizado pelo QA (`QA-REPORT.md` Seção 6.6) como
+"fora do escopo de BE-06/07/09" — confirmado por leitura direta desta
+auditoria, com avaliação de severidade própria do DevSecOps:
+
+- `infra/environments/{staging,production}/main.tf`, módulo
+  `imaging_gateway_service` (`task_policy_json`, linha ~295-302 em
+  staging): concede `s3:PutObject` no bucket de Object Storage ao
+  container do Orthanc, com o comentário "Orthanc precisa gravar o
+  JPEG/PNG convertido no Object Storage" — **factualmente incorreto**
+  contra a implementação real de BE-07: quem grava no Object Storage é o
+  processo `ImagingConversionProcessor`, rodando dentro de `core_service`
+  (que já tem a permissão equivalente, `s3:GetObject`+`s3:PutObject`,
+  linha ~222-227) — o Orthanc nunca chama a API do S3 diretamente
+  (confirmado por leitura completa de `on-stable-study.lua` e de todo
+  `backend/src/imaging-gateway/`, nenhuma chamada AWS SDK/S3 existe fora
+  de `ImagingConversionProcessor`/`ObjectStorageService`, ambos parte do
+  core).
+- **Avaliação de severidade deste agente**: **Média**, não Alta/Crítica.
+  Razões: (a) não é uma vulnerabilidade explorável diretamente por si só
+  — exige um segundo evento (comprometimento do container Orthanc, ex.:
+  via um arquivo DICOM malicioso explorando uma falha de parsing/GDCM,
+  vetor de ataque plausível e historicamente documentado para
+  implementações DICOM, mas não uma falha já demonstrada neste projeto);
+  (b) o Orthanc é exposto a uma superfície de ataque real (DICOM C-STORE
+  vindo da rede do hospital, ainda que privada/VPN) — a violação do
+  princípio de menor privilégio aqui tem uma cadeia de exploração
+  concreta e não meramente teórica, o que justifica não tratar como Baixa;
+  (c) o bucket de Object Storage é compartilhado entre tenants (isolamento
+  de tenant nesse recurso é por prefixo de chave/aplicação, não por
+  bucket físico) — se o container Orthanc fosse comprometido e a
+  permissão abusada, o *blast radius* potencial (escrever/sobrescrever
+  objeto no bucket) não fica contido a um único tenant/hospital.
+- Não bloqueia o deploy deste lote — o Terraform afetado não foi tocado
+  por nenhuma das 3 tarefas deste lote (confirmado por `git log`/notas de
+  status), e a exploração depende de um evento de comprometimento adicional
+  que não tem evidência de ter ocorrido. Registrado como débito com dono e
+  prazo.
+
+### 5. `finding-severity-classification` — consolidação
+
+| ID | Achado | Severidade | Bloqueia deploy? | Dono | Prazo |
+|---|---|---|---|---|---|
+| `SEC-BUG-002` (novo) | `CoreIngestPlaceholderController` (BE-06) loga `JSON.stringify` do `CanonicalExamResultMessage` inteiro (nome + identificador do paciente + resultado clínico) em nível `log`, em todo request real — violação do princípio de minimização de dado da LGPD (Art. 6º, III) sobre dado sensível de saúde (Art. 11), sem camada compensatória (log sem KMS dedicado, sem controle de acesso restrito, retenção 30 dias), sem teste que impeça regressão | **Alta** | **Sim** | Backend (corrige o log do controller) | Antes do próximo deploy deste lote; correção isolada, não depende de BE-24 |
+| `SEC-DEBT-003` (novo) | `imaging_gateway_service` (Terraform pré-existente, não introduzido por este lote) recebe `s3:PutObject` desnecessário — Orthanc nunca grava no Object Storage na implementação real de BE-07; comentário do Terraform desatualizado/incorreto; bucket compartilhado entre tenants amplia o *blast radius* potencial de um comprometimento do container | Média | Não | DevOps (remove a permissão/corrige o comentário) | Antes do primeiro deploy real em `staging` com tráfego de DICOM do hospital piloto |
+| `QA-DEBT-017` (herdado, classificação de QA confirmada por este agente) | Fila `imaging-conversion` sem `attempts`/`backoff` — falha transitória única marca job como `failed` permanentemente | Média | Não | Backend | Antes do primeiro deploy em staging com tráfego real de imagem (mesmo marco de `QA-DEBT-016`) |
+
+**Nenhum outro achado de severidade Baixa/Média novo identificado neste
+lote** — os demais itens verificados (guard de serviço nos 4 endpoints
+sem bypass, isolamento de rede, ausência de atribuição implícita de
+`tenant_id`, ausência de acesso direto ao banco pelos serviços de borda,
+Orthanc sem customização de tenant) confirmados corretos, sem débito a
+registrar.
+
+### 6. Requisitos de segurança operacional para o DevOps (Lote 2)
+
+1. **Não aplicar deploy deste lote a nenhum ambiente com tráfego real de
+   HL7 do hospital enquanto `SEC-BUG-002` estiver aberto** — o log de
+   dado de saúde identificável acontece a cada mensagem processada pelo
+   endpoint `/internal/ingest`, independente de qual ambiente recebe o
+   tráfego.
+2. Resolver `SEC-DEBT-003` (remover `s3:PutObject` de
+   `imaging_gateway_service` em `infra/environments/{staging,production}/main.tf`,
+   corrigir o comentário que atribui incorretamente a gravação no Object
+   Storage ao Orthanc) antes do primeiro deploy real com tráfego DICOM do
+   hospital piloto — não bloqueante para este lote, mas prioritário por
+   tocar a superfície de ataque mais exposta a input externo do projeto
+   (DICOM C-STORE).
+3. Confirmar, quando `INTERNAL_SERVICE_API_KEY` for rotacionada pela
+   primeira vez em produção, que os 3 serviços ECS (core,
+   integration-gateway, imaging-gateway) recebem o novo valor
+   simultaneamente — a credencial é única e compartilhada entre os 3
+   emissores/1 validador (decisão de detalhe já documentada pelo Backend,
+   `TASK.md` linha ~279); uma rotação parcial quebraria a autenticação de
+   um dos gateways silenciosamente até o próximo deploy.
+4. Nenhum requisito novo de rede/firewall além do já confirmado correto
+   nesta auditoria (Seção 2) — `enable_hospital_channel`/CIDR explícito
+   por hospital já é o mecanismo correto para o piloto; ao integrar o
+   hospital #2 (fora deste lote, `SDD.md` "Negative Consequences"),
+   reavaliar se o modelo de CIDR único por variável ainda serve ou
+   precisa generalizar para lista.
+5. Considerar (não bloqueante, reforço de defesa em profundidade dado que
+   o Orthanc recebe input binário não confiável de fora do perímetro do
+   core via C-STORE): confirmar que o `imaging_gateway_service` roda com
+   `read_only_root_filesystem`/least-privilege de SO equivalente ao já
+   aplicado a `core_service`, se essa prática já existir — fora do
+   escopo desta auditoria confirmar (não avaliado, `ecs-service/main.tf`
+   não expõe essa opção nesta leitura), registrado só como sugestão de
+   hardening a avaliar pelo DevOps.
+
+### 7. Sinalização ao CTO (registro, em paralelo — não pré-requisito do bloqueio já aplicado por este agente)
+
+- **`SEC-BUG-002` já bloqueia o deploy deste lote por decisão deste
+  agente** (achado de severidade Alta, compliance obrigatório de LGPD,
+  dentro da autoridade de bloqueio do DevSecOps) — esta sinalização ao
+  CTO é registro, não uma solicitação de confirmação prévia.
+- **Relevância estratégica para o CTO avaliar** (decisão de processo, não
+  só técnica): esta é a **primeira vez** que o projeto efetivamente
+  transporta dado de saúde real entre sistemas (BE-06/BE-07), e a
+  primeira vez que um achado de exposição de dado sensível aparece em
+  log de aplicação — diferente de `SEC-BUG-001` (Lote 3, privilégio de
+  banco), aqui o canal violado (log/CloudWatch) é operado inteiramente
+  pelo DevOps/observabilidade, não pelo Backend em runtime de banco.
+  Sugestão para avaliação do CTO/Tech Lead (não decisão deste agente):
+  formalizar em `GUARDRAILS.md` uma regra explícita equivalente ao item
+  27 (proibição de dado de saúde em e-mail) para logs de aplicação — hoje
+  a Seção C (itens 11-15) cobre exposição de rede/protocolo, mas nenhuma
+  regra nomeada cobre logging, e este é o primeiro lote onde a lacuna se
+  materializou em código real. Não é urgente resolver antes deste lote
+  (a correção pontual de `SEC-BUG-002` já resolve a instância concreta),
+  mas fica como sugestão de reforço de processo para lotes futuros que
+  também lidem com dado de saúde (BE-18, BE-24, BE-38, BE-29).
+- Nenhuma outra questão de relevância estratégica identificada neste
+  lote — `SEC-DEBT-003` (IAM) e `QA-DEBT-017` (retry) são técnicos/
+  operacionais, dentro da autoridade de resolução usual de DevOps/Backend.
+
+### 8. Veredito do Lote 2
+
+**Reprovado — bloqueado por 1 achado de severidade Alta (`SEC-BUG-002`).**
+
+- **1 achado de severidade Alta em aberto** — dado de saúde identificável
+  (nome + identificador do paciente + resultado clínico) logado em texto
+  plano em todo request real ao endpoint `/internal/ingest`
+  (`CoreIngestPlaceholderController`, BE-06), violando o princípio de
+  minimização de dado da LGPD (Art. 6º, III) sobre a categoria de dado
+  sensível de saúde (Art. 11), sem camada compensatória ativa. Bloqueia
+  deploy por decisão deste agente, dentro da autoridade de bloqueio do
+  DevSecOps — não depende de confirmação prévia do CTO (sinalizado a ele
+  em paralelo, Seção 7).
+- **Todos os demais itens auditados estão corretos**: credencial de
+  serviço dedicada aplicada aos 4 endpoints internos sem bypass
+  encontrado (BE-09); canal de rede não exposto publicamente, confirmado
+  por leitura direta do Terraform (§7.5/GUARDRAILS 14); nenhum acesso
+  direto ao banco pelos serviços de borda (GUARDRAILS 13); Orthanc
+  permanece produto de mercado genérico sem customização de tenant
+  (GUARDRAILS 15); nenhuma atribuição implícita/hardcoded de `tenant_id`
+  introduzida por BE-06/BE-07 (regra A.5, ADR-012) — a resolução de fato
+  segue corretamente deferida a BE-38, sem nenhuma suposição de "tenant
+  único" a desfazer depois.
+- **2 débitos de severidade Média registrados** (`SEC-DEBT-003` — IAM
+  excessivo em componente pré-existente, não deste lote; `QA-DEBT-017`,
+  herdado do QA, classificação confirmada), ambos com dono e prazo, nenhum
+  bloqueante.
+- Requisito de maior severidade deste lote (credencial de serviço
+  dedicada + isolamento de rede, `GUARDRAILS.md` Seção C) — confirmado
+  sem exceção; o achado que reprova este lote é de uma frente diferente
+  (exposição de dado sensível em log, não de rede/credencial).
+
+**Liberação**: **bloqueada** até `SEC-BUG-002` ser corrigido pelo Backend
+e revalidado por este agente — a correção é isolada e rápida (trocar o
+conteúdo de um log em um único controller, mesmo padrão de restrição já
+usado em três outros pontos do próprio lote), não deve represar o
+cronograma. Escalado ao Backend via `BLOCKERS.md` (Bloqueio 005). Nenhuma
+tarefa futura que dependa deste lote (BE-18, BE-24 de BE-06; BE-38 de
+BE-07) deve ser considerada segura para produção enquanto `SEC-BUG-002`
+estiver aberto — o guard de credencial de serviço e o isolamento de rede
+(a parte técnica majoritária deste lote) seguem confirmados corretos e
+não impedem o trabalho de decomposição/design dessas tarefas futuras
+continuar, apenas o deploy com tráfego real permanece bloqueado.
+
+### 9. Revalidação de `SEC-BUG-002` (devsecops, 2026-09-05)
+
+Revalidação pontual e independente da correção aplicada pelo Backend (nota
+de correção pós-implementação de BE-06/BE-07, `TASK.md` §3, 2026-09-05),
+não uma reauditoria completa do lote — as demais 3 skills já haviam sido
+executadas na auditoria original (Seções 1-8 acima) e só encontraram este
+achado bloqueante, mais os débitos não bloqueantes já registrados
+(`SEC-DEBT-003`, `QA-DEBT-017`), que continuam válidos e não foram
+reavaliados aqui.
+
+**Verificação por leitura direta de código** (não apenas o relato do
+Backend):
+
+1. `backend/src/integration-engine/core-ingest-placeholder.controller.ts`
+   lido linha a linha: `receive()` não chama mais `JSON.stringify(body)`;
+   o único `this.logger.log(...)` (linhas 59-62) cita apenas
+   `schemaVersion`, `sourceSystem`, `messageType` e `messageControlId` —
+   nenhum dos quatro é PII nem dado clínico, são metadados técnicos de
+   protocolo (versão de schema, sistema de origem, tipo de mensagem HL7,
+   ID de controle da mensagem). `patient`/`exam`/`result` não aparecem em
+   nenhum ponto do método fora da atribuição a `lastReceivedMessage`.
+2. `backend/src/imaging-gateway/core-imaging-ingest-placeholder.controller.ts`
+   lido linha a linha: mesmo padrão — o único `this.logger.log(...)`
+   (linhas 53-56) cita `schemaVersion`, `remoteAet`,
+   `dicom?.sopInstanceUid`, `convertedFile?.contentType`, `convertedAt`.
+   Nenhum é PII; `remoteAet`/UID DICOM/tipo de conteúdo/timestamp são
+   metadados técnicos de integração, consistente com o que a auditoria
+   original já havia confirmado sobre `CanonicalImagingNotificationMessage`
+   não carregar identificação de paciente.
+3. Grep por `Logger.log(JSON.stringify` e `console.*(JSON.stringify` em
+   todo `backend/src/`: **nenhuma ocorrência** — confirma que não sobrou
+   nenhum outro ponto com o mesmo anti-padrão fora dos dois já corrigidos
+   (e o segundo, BE-07, nunca foi achado de compliance, só de estilo,
+   conforme já registrado na Seção 4).
+4. `lastReceivedMessage`/`getLastReceivedMessage()`: grep por
+   `getLastReceivedMessage` em todo `backend/` mostra uso só dentro dos
+   dois controllers (declaração) e dos arquivos de teste e2e
+   (`integration-engine.e2e-spec.ts`, `imaging-gateway.e2e-spec.ts`,
+   `orthanc-imaging-gateway.e2e-spec.ts`, `hl7v2-channel.e2e-spec.ts`),
+   que obtêm a instância do controller diretamente do módulo Nest de
+   teste (`app.get(...)`), não via HTTP. Nenhum `@Get` (ou qualquer outro
+   método HTTP) expõe esse estado em nenhum dos dois controllers — a
+   classe só declara `@Post()`. Não há endpoint de debug que devolva o
+   estado interno; achado potencial descartado.
+5. Os dois testes de regressão `[SEC-BUG-002]` lidos por completo
+   (`integration-engine.e2e-spec.ts` linhas 108-145;
+   `imaging-gateway.e2e-spec.ts` linhas 186-237): ambos espionam
+   `Logger.prototype.log` com `vi.spyOn`, disparam uma request HTTP real
+   contra o endpoint (não uma chamada direta ao método), e afirmam
+   explicitamente a ausência de `patientIdentifier`/`patientName`/
+   `resultValue`/`examName` (BE-06) e de `"dicom"`/`"convertedFile"`
+   serializados (BE-07) em toda mensagem logada pelo placeholder, além de
+   confirmar a presença do metadado técnico esperado
+   (`messageControlId=`/`sopInstanceUid=`/`remoteAet=`). Um regresso ao
+   `JSON.stringify(body)` inteiro faria as duas asserções de ausência
+   falharem — não são testes que passariam de qualquer forma.
+
+**Reexecução independente da suíte** (ambiente com Docker disponível, não
+apenas leitura de código nem confiança no relato do Backend):
+
+- `npx vitest run --config ./vitest.config.e2e.ts
+  test/integration-engine/integration-engine.e2e-spec.ts
+  test/imaging-gateway/imaging-gateway.e2e-spec.ts` → **25 testes, todos
+  passando**, incluindo os dois blocos `[SEC-BUG-002]`.
+
+**Nenhum achado residual.** A correção elimina a serialização do payload
+sensível em ambos os controllers, com teste de regressão permanente e
+funcional em duas suítes, sem introduzir exposição indireta via estado
+interno em memória.
+
+**Veredito final do Lote 2: Aprovado com débito registrado.**
+
+- Nenhum achado de severidade Alta/Crítica em aberto — `SEC-BUG-002` está
+  corrigido e revalidado por leitura de código e reexecução independente
+  da suíte.
+- Nenhum achado de compliance obrigatório (LGPD Art. 6º/11) pendente — a
+  minimização de dado sensível de saúde em log está em vigor nos dois
+  controllers afetados, não apenas no que motivou o achado original.
+- 2 débitos de severidade Média permanecem registrados, sem alteração
+  desta revalidação: `SEC-DEBT-003` (IAM excessivo em componente
+  pré-existente) e `QA-DEBT-017` (herdado do QA) — ambos com dono e prazo
+  já definidos nas Seções 5-6 acima, nenhum bloqueante.
+- Requisitos de segurança operacional para o DevOps permanecem os já
+  registrados na Seção 6 acima (rotação de `AWS_CLOUDWATCH_LOG_GROUP`
+  sem `kms_key_id` dedicado, etc.) — nenhum requisito novo introduzido
+  por esta correção.
+- Sugestão de reforço de processo (`GUARDRAILS.md`, regra de log de dado
+  de saúde) registrada na Seção 7 acima permanece como sinalização ao CTO,
+  não como bloqueio — correção pontual de `SEC-BUG-002` já resolve a
+  instância concreta.
+- `BLOCKERS.md` Bloqueio 005 atualizado para `Resolvido` nesta mesma data.

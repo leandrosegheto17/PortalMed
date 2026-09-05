@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { SERVICE_API_KEY_CONFIG, SERVICE_API_KEY_HEADER, type ServiceApiKeyConfig } from '../security/index.js';
 import { INTEGRATION_ENGINE_CONFIG } from './integration-engine.tokens.js';
 import type { IntegrationEngineConfig } from './integration-engine-config.js';
 import type { CanonicalExamResultMessage } from './canonical-exam-result-message.js';
@@ -17,6 +18,12 @@ import type { CanonicalExamResultMessage } from './canonical-exam-result-message
  *
  * Usa o `fetch` global do Node (ADR-005, Node.js LTS) — nenhuma biblioteca
  * HTTP cliente adicional necessária para uma única chamada POST.
+ *
+ * **Segurança (BE-09, `TASK.md`)**: `POST /internal/ingest` exige
+ * `@UseGuards(ServiceApiKeyGuard)` — este serviço anexa o header
+ * `X-Service-Api-Key` (`SERVICE_API_KEY_CONFIG`, mesma credencial validada
+ * pelo guard) em toda chamada, mesmo os dois lados vivendo no mesmo
+ * processo hoje (`backend/docs/service-api-key-auth.md`).
  */
 @Injectable()
 export class IntegrationEngineAclService {
@@ -24,12 +31,16 @@ export class IntegrationEngineAclService {
 
   constructor(
     @Inject(INTEGRATION_ENGINE_CONFIG) private readonly config: IntegrationEngineConfig,
+    @Inject(SERVICE_API_KEY_CONFIG) private readonly serviceApiKeyConfig: ServiceApiKeyConfig,
   ) {}
 
   async publishToCore(message: CanonicalExamResultMessage): Promise<void> {
     const response = await fetch(this.config.coreIngestUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        [SERVICE_API_KEY_HEADER]: this.serviceApiKeyConfig.serviceApiKey,
+      },
       body: JSON.stringify(message),
     });
 

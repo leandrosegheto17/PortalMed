@@ -35,11 +35,14 @@ describe('IntegrationEngineAclService', () => {
     global.fetch = originalFetch;
   });
 
-  function buildService(coreIngestUrl = 'http://localhost:3000/internal/ingest'): IntegrationEngineAclService {
-    return new IntegrationEngineAclService({ coreIngestUrl });
+  function buildService(
+    coreIngestUrl = 'http://localhost:3000/internal/ingest',
+    serviceApiKey = 'chave-de-servico-de-teste',
+  ): IntegrationEngineAclService {
+    return new IntegrationEngineAclService({ coreIngestUrl }, { serviceApiKey });
   }
 
-  it('publica o JSON canônico via POST para coreIngestUrl, com Content-Type application/json', async () => {
+  it('publica o JSON canônico via POST para coreIngestUrl, com Content-Type application/json e o header X-Service-Api-Key (BE-09)', async () => {
     fetchMock.mockResolvedValue({ ok: true, status: 202 });
     const service = buildService();
 
@@ -49,7 +52,10 @@ describe('IntegrationEngineAclService', () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('http://localhost:3000/internal/ingest');
     expect(init.method).toBe('POST');
-    expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(init.headers).toEqual({
+      'Content-Type': 'application/json',
+      'x-service-api-key': 'chave-de-servico-de-teste',
+    });
     expect(JSON.parse(init.body as string)).toEqual(CANONICAL_MESSAGE);
   });
 

@@ -240,6 +240,141 @@ retroativamente. Nenhuma ação adicional pendente sobre este bloqueio.
 
 ---
 
+## Bloqueio 005 — 2026-09-04
+
+- Reportado por: devsecops (auditoria completa de segurança do Lote 2 —
+  Integração com Sistemas do Hospital, `SECURITY-REVIEW.md` "Lote 2")
+- Escalado para: backend (correção de código); cto (registro em paralelo,
+  Seção 7 de `SECURITY-REVIEW.md` "Lote 2" — sugestão de reforço de
+  processo/`GUARDRAILS.md` para log de dado sensível, não pré-requisito do
+  bloqueio já aplicado por este agente)
+- Artefato/trecho afetado: `backend/src/integration-engine/
+  core-ingest-placeholder.controller.ts` (linhas 43-45)
+- Descrição: o endpoint `POST /internal/ingest`
+  (`CoreIngestPlaceholderController.receive`, deliverável de BE-06) loga
+  via `this.logger.log(...JSON.stringify(body))` o `CanonicalExamResultMessage`
+  inteiro — `patient.identifier`/`patient.name` (identificação direta do
+  titular) + `exam.code`/`exam.name`/`result.value`/`result.unit`
+  (resultado clínico, dado sensível de saúde, LGPD Art. 11) — em nível
+  `log` (não `debug`), em todo request real a este endpoint. O caminho já
+  é exercitado de ponta a ponta pela própria suíte do projeto
+  (`hl7v2-channel.e2e-spec.ts`, engine real via `testcontainers`), não é
+  uma hipótese teórica. Nenhuma camada compensatória equivalente à do
+  banco protege este log: `infra/modules/ecs-service/main.tf` cria o
+  `aws_cloudwatch_log_group` sem `kms_key_id` dedicado (só criptografia
+  gerenciada padrão da AWS) e com retenção padrão de 30 dias; nenhum
+  controle de acesso equivalente ao escopo restrito da role de banco
+  `portalmed_app`. O restante do próprio módulo já demonstra a disciplina
+  correta (loga só identificador técnico, nunca dado do paciente:
+  `IntegrationEngineController`, `ImagingGatewayController`,
+  `ImagingConversionProcessor`) — esta é a única exceção, sem
+  justificativa registrada. Nenhum teste cobre/impede o conteúdo deste
+  log. Detalhamento completo, incluindo trecho de código e análise de
+  severidade, em `SECURITY-REVIEW.md` "Lote 2", Seção 4 (`SEC-BUG-002`).
+- Impacto se não resolvido: bloqueia o deploy deste lote (achado de
+  severidade Alta, compliance obrigatório de LGPD — Art. 6º, III,
+  minimização de dado, aplicado à categoria de dado sensível de saúde,
+  Art. 11). Qualquer deploy real com tráfego HL7 do hospital piloto antes
+  da correção grava nome, identificador e resultado clínico do paciente
+  em texto plano no CloudWatch Logs, acessível a um escopo de pessoas mais
+  amplo do que o já restrito à role de aplicação do banco, sem
+  criptografia de coluna nem RLS equivalentes às garantias já validadas
+  para o PostgreSQL (Lotes 1/3).
+- Sugestão (não prescritiva): em `core-ingest-placeholder.controller.ts`,
+  trocar o log de `JSON.stringify(body)` por um log que cite apenas campos
+  não-identificáveis (`schemaVersion`, `sourceSystem`, `messageType`,
+  `messageControlId`) — mesmo nível de detalhe já usado por
+  `IntegrationEngineController` para o mesmo fluxo. Se observabilidade do
+  conteúdo completo for genuinamente necessária, considerar nível `debug`
+  e mascaramento de `patient.identifier`/`patient.name`, com decisão
+  registrada explicitamente. Recomenda-se teste de regressão (spy no
+  logger, assertando que `patient`/`result` não aparecem na mensagem
+  logada). Correção isolada, não depende de BE-24.
+- Status: **Resolvido**
+
+### Nota factual (backend, 2026-09-05) — correção aplicada, aguardando revalidação do DevSecOps
+
+Correção de código aplicada em `backend/src/integration-engine/
+core-ingest-placeholder.controller.ts` (BE-06): o log deixou de serializar
+`JSON.stringify(body)` inteiro e agora cita só metadado técnico
+não-identificável (`schemaVersion`, `sourceSystem`, `messageType`,
+`messageControlId`), mesmo nível de detalhe já usado por
+`IntegrationEngineController`. `lastReceivedMessage` (estado interno,
+nunca escrito em log) permanece inalterado — continua guardando a
+mensagem completa só para a suíte de teste inspecionar
+(`getLastReceivedMessage()`). Teste de regressão novo (spy em
+`Logger.prototype.log`) adicionado a
+`test/integration-engine/integration-engine.e2e-spec.ts`.
+
+Verificado também `CoreImagingIngestPlaceholderController` (BE-07, mesmo
+padrão de placeholder), conforme pedido: `CanonicalImagingNotificationMessage`
+não carrega dado pessoal identificável (confirmado pelo próprio DevSecOps
+nesta auditoria, Seção 3/4 de `SECURITY-REVIEW.md` "Lote 2"), então BE-07
+não gerava o mesmo achado de compliance — mas tinha o mesmo anti-padrão de
+`JSON.stringify(body)` irrestrito, corrigido junto por ser a mesma causa
+raiz (log só com `schemaVersion`, `remoteAet`, `dicom.sopInstanceUid`,
+`convertedFile.contentType`, `convertedAt`), com teste de regressão
+equivalente em `test/imaging-gateway/imaging-gateway.e2e-spec.ts`.
+
+Suíte completa reexecutada após a correção: `npm run build` (limpo),
+`npm run lint` (limpo), `npm test` (192 passando), `npm run test:e2e` (291
+passando, inclui os 2 testes de regressão novos), `npm run test:tenant-isolation`
+(158 passando, sem alteração).
+
+Detalhe completo da correção em `TASK.md` §3, coluna Status de BE-06 e
+BE-07 (nota de correção pós-implementação, 2026-09-05).
+
+**Este registro permanece com Status `Aberto`** — cabe ao DevSecOps
+revalidar a correção (leitura de código + reexecução independente da
+suíte, mesmo padrão já usado para `SEC-BUG-001`/Bloqueio 004 no Lote 3)
+antes de marcar como `Resolvido`. Nenhuma alteração de status feita pelo
+Backend.
+
+### Resolução (devsecops, 2026-09-05)
+
+**Correção verificada e confirmada, sem regressão.** Revalidação pontual e
+independente (não uma reauditoria completa do lote — as demais 3 skills já
+haviam rodado na auditoria original sem outro achado bloqueante, só os
+débitos não bloqueantes já registrados `SEC-DEBT-003`/`QA-DEBT-017`, que
+continuam válidos e não foram reavaliados) sobre a correção que o Backend
+aplicou em 2026-09-05.
+
+**Verificação por leitura direta de código**:
+
+1. `core-ingest-placeholder.controller.ts` (BE-06) lido linha a linha: o
+   único `this.logger.log(...)` cita só `schemaVersion`, `sourceSystem`,
+   `messageType`, `messageControlId` — nenhum PII/dado clínico. `patient`/
+   `exam`/`result` não aparecem fora da atribuição a `lastReceivedMessage`.
+2. `core-imaging-ingest-placeholder.controller.ts` (BE-07) lido linha a
+   linha: mesmo padrão — log cita só `schemaVersion`, `remoteAet`,
+   `dicom?.sopInstanceUid`, `convertedFile?.contentType`, `convertedAt`,
+   igualmente não-PII.
+3. Grep por `Logger.log(JSON.stringify`/`console.*(JSON.stringify` em todo
+   `backend/src/`: nenhuma outra ocorrência do anti-padrão.
+4. `lastReceivedMessage`/`getLastReceivedMessage()`: uso restrito aos dois
+   controllers e aos arquivos de teste e2e via `app.get(...)` do módulo
+   Nest de teste — nenhum `@Get`/endpoint de debug expõe esse estado por
+   HTTP.
+5. Os dois testes de regressão `[SEC-BUG-002]` lidos por completo: ambos
+   espionam `Logger.prototype.log`, disparam request HTTP real, e afirmam
+   ausência de `patientIdentifier`/`patientName`/`resultValue`/`examName`
+   (BE-06) e de `"dicom"`/`"convertedFile"` serializados (BE-07) —
+   regressão ao `JSON.stringify(body)` faria essas asserções falharem.
+
+**Reexecução independente da suíte** (Docker disponível neste ambiente):
+
+- `npx vitest run --config ./vitest.config.e2e.ts
+  test/integration-engine/integration-engine.e2e-spec.ts
+  test/imaging-gateway/imaging-gateway.e2e-spec.ts` → **25/25 testes
+  passando**, incluindo os dois blocos `[SEC-BUG-002]`.
+
+**Veredito**: `SEC-BUG-002` corrigido nos dois controllers (BE-06 e BE-07,
+mesma causa raiz), com teste de regressão permanente e funcional, sem
+exposição indireta via estado interno em memória. Detalhe completo em
+`SECURITY-REVIEW.md` "Lote 2", Seção 9. Veredito final do Lote 2:
+**Aprovado com débito registrado** (`SEC-DEBT-003`, `QA-DEBT-017`, ambos
+com dono e prazo, nenhum bloqueante).
+
 ## Bloqueio 004 — 2026-09-03
 
 - Reportado por: devsecops (auditoria completa de segurança do Lote 3 —
@@ -291,4 +426,63 @@ retroativamente. Nenhuma ação adicional pendente sobre este bloqueio.
   (`has_table_privilege('portalmed_app', 'audit_events'/'consent_records',
   'UPDATE'/'DELETE')` = `false`) e corrigir a redação de
   `tenant-guard-and-rls.md`.
-- Status: **Aberto**
+- Status: **Resolvido**
+
+### Resolução (devsecops, 2026-09-04)
+
+**Correção verificada e confirmada, sem regressão.** Revalidação pontual e
+independente (não uma reauditoria completa do lote — as demais 4 skills já
+haviam rodado na auditoria original sem outro achado) sobre a correção que
+o Backend aplicou em 2026-09-03 (nota de correção pós-implementação em
+`TASK.md`, BE-03/BE-04).
+
+**Verificação por leitura direta de código**:
+
+1. `backend/migrations/1788336900000_create-app-database-role.ts` lida
+   linha a linha: `DOMAIN_TABLES` particionada em `APPEND_ONLY_TABLES`
+   (`audit_events`, `consent_records` — recebem só `SELECT`/`INSERT`) e
+   `FULL_PRIVILEGE_DOMAIN_TABLES` (as 11 tabelas restantes, mantêm
+   `SELECT`/`INSERT`/`UPDATE`/`DELETE`). `up()`/`down()` simétricos e
+   corretos. Nenhuma regressão de escopo oposto.
+2. `backend/docs/tenant-guard-and-rls.md` corrigido — não afirma mais uma
+   exceção que não existia.
+3. `backend/test/database/tenant-guard-and-rls.e2e-spec.ts`, bloco
+   `[SEC-BUG-001]`: `has_table_privilege` confirma `UPDATE`/`DELETE` =
+   `false` nas 2 tabelas append-only e privilégio completo mantido nas 11
+   demais; tentativa real de `UPDATE`/`DELETE`/`INSERT`/`SELECT` via
+   `pg.Client` cru como `portalmed_app` — `UPDATE`/`DELETE` rejeitados com
+   `permission denied` do próprio Postgres (não RLS, não validação de
+   aplicação).
+4. `backend/test/database/tenant-cross-leak-exhaustive.e2e-spec.ts`:
+   reparticionamento em `MUTATION_CAPABLE_TABLES`/`APPEND_ONLY_TABLES`
+   coerente nas Camadas 1 e 3; Camada 2 (superusuário) corretamente
+   inalterada (superusuário sempre ignora `GRANT`, do mesmo jeito que já
+   ignora RLS).
+5. Grep por `audit_events`/`consent_records` em `backend/migrations/` e
+   `backend/src/database/`: nenhum outro caminho concede privilégio
+   equivalente a essas tabelas.
+
+**Reexecução independente da suíte** (ambiente com Docker disponível, não
+apenas leitura de código nem confiança no relato do Backend):
+
+- `tenant-guard-and-rls.e2e-spec.ts` → 48/48 testes passando (inclui o
+  bloco `[SEC-BUG-001]`).
+- `npm run test:tenant-isolation` → 158/158 testes passando (mesma
+  contagem reportada pelo Backend).
+- `npm run test:e2e` (suíte completa) → 268/268 testes passando (Backend
+  reportou 264; diferença de 4 não indica falha — suíte inteira verde, sem
+  regressão).
+
+**Veredito**: `SEC-BUG-001` corrigido no nível de banco (não apenas de
+aplicação), com teste de regressão permanente em duas suítes
+independentes, sem regressão de escopo nas 11 tabelas restantes. Detalhe
+completo em `SECURITY-REVIEW.md` "Lote 3", Seção 9 (revalidação). Veredito
+final de DevSecOps para o Lote 3: **Aprovado**.
+
+- Escalado por: `devsecops` (auditoria completa de segurança do Lote 3).
+- Resolvido por: `devsecops`, via revalidação pontual (leitura de código +
+  reexecução independente das suítes e2e/tenant-isolation).
+- Artefatos alterados por esta resolução: `.md/SECURITY-REVIEW.md` (Lote 3,
+  Seção 9), `.md/BLOCKERS.md` (este registro). Nenhum código alterado por
+  este agente — a correção de código já havia sido feita pelo Backend em
+  2026-09-03.

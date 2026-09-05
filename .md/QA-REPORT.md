@@ -2601,6 +2601,7 @@ cumprida por implementação verificada, não apenas declarada.**
 | QA-DEBT-014 | FE-07 | — (não é bug, é item de revalidação agendada) | `cross-platform-integration-testing` do fluxo TL-05→TL-06 (submissão final de cadastro + registro de consentimento) não pôde ser executado ponta a ponta — `termsApi.ts`/`registrationApi.ts` são mocks (conteúdo placeholder de termos; `registrationApi` sempre retorna `{ success: true }`), sem nenhum `API-CONTRACT.yaml` publicado no repositório (confirmado nesta validação) e BE-18/BE-19 ainda `A Fazer`. As três telas estão implementadas e testadas via injeção de dependência, mas o payload real (possivelmente duas chamadas separadas, por RN-02) não foi validado contra um contrato real. Mesmo padrão estrutural de `QA-DEBT-002`/FE-01 e `QA-DEBT-011`/FE-06. | Aguardando dependência (BE-18 + BE-19 + `API-CONTRACT.yaml`) | Assim que BE-18/BE-19 publicarem o endpoint real e Frontend trocar `termsApi.ts`/`registrationApi.ts` |
 | QA-DEBT-015 | FE-07 | Baixa/Média | Nenhuma guarda de entrada em `CadastroDefinirSenhaPage` (TL-06)/`CadastroConfirmacaoPage` (TL-07) detecta a ausência de `personalData`/`termsVersion` em `location.state` quando o paciente alcança essas rotas sem passar por TL-02/TL-05 (URL direta, nova aba, favorito). Confirmado empiricamente (navegação real via Playwright direto para `/criar-conta/senha`): o formulário permanece funcional, o CTA "Criar conta" segue habilitado, e a submissão prossegue normalmente até TL-07 com mensagem genérica de sucesso, sem nome — como se o cadastro tivesse sido concluído com êxito, mesmo sem nome/CPF/e-mail/celular/versão dos termos. Com o mock atual (sempre `success: true`) isso não quebra a UI; contra o endpoint real, o desfecho mais provável é rejeição por campo obrigatório ausente, caindo no branch de erro genérico já implementado — que não orienta o paciente a voltar ao início do cadastro (a única ação que resolveria a causa raiz), criando risco de loop de tentativas fadadas ao mesmo erro. Refresh real (F5) mid-fluxo **não** apresenta este risco (`history.state` do navegador preserva o dado através de reload, confirmado empiricamente) — o risco é específico de navegação direta sem histórico prévio. | Aberto (débito, não bloqueia) | Antes de BE-18/BE-19 publicarem o endpoint real (quando o mock otimista deixar de mascarar o cenário) — adicionar guarda simples (`if (!personalData) navigate('/criar-conta', { replace: true })`) no mount de TL-06 |
 | QA-DEBT-016 | BE-08 | Baixa | Achado nesta validação de Lote 1 (Seção 4.4). O teste e2e de expiração de URL assinada (`object-storage-infrastructure.e2e-spec.ts`, "um override de expiração curto...") não afirma "GET depois do prazo falha" — limitação documentada e aceita do próprio LocalStack (bug conhecido de longa data, `X-Amz-Expires` não é enforced pelo S3 simulado; issues públicas `localstack/localstack#7840`/`#9538`/`#2493`/`#1685`). O teste prova que o override é corretamente embutido na assinatura e funciona dentro do prazo; a garantia de expiração real de fato acontecer no servidor fica inteiramente delegada à implementação SigV4 de `@aws-sdk/s3-request-presigner` contra o S3 real da AWS, nunca reimplementada por este projeto — decisão de escopo razoável, não uma falha de teste. Ainda assim, o comportamento de expiração real (URL assinada rejeitada pela AWS após o TTL) nunca foi observado empiricamente neste projeto, nem contra LocalStack nem contra AWS real. | Aberto (débito, não bloqueia) | Antes do primeiro deploy em `staging` com tráfego real de laudo/imagem (a partir do fechamento do Lote 5, RF-06/RF-07/RF-08) — validação manual pontual (`curl` a uma URL assinada de TTL curto, antes e depois de expirar, contra o bucket real de `staging`) para confirmar o comportamento de expiração fora do ambiente de teste, sem exigir reabertura de BE-08 |
+| QA-DEBT-017 | BE-07 | Média | Achado nesta validação de Lote 2 (Seção 6.5), por teste adversarial próprio (não capturado pela revisão pós-implementação): o job da fila `imaging-conversion` (`ImagingGatewayController.receiveStableInstanceNotification` → `queue.add('convert-instance', notification)`) é enfileirado **sem nenhuma opção de `attempts`/`backoff`** — confirmado por leitura de `imaging-gateway.controller.ts` e busca por `attempts`/`backoff`/`defaultJobOptions` em todo `backend/src/` (nenhuma ocorrência). BullMQ usa `attempts: 1` por padrão, ou seja, se `ImagingConversionProcessor.process` falhar uma única vez (Orthanc temporariamente indisponível durante `fetchConvertedPreview`, ou o endpoint interno do core indisponível durante `publishToCore` — ambos já testados isoladamente, propagam o erro corretamente, `imaging-conversion.processor.spec.ts`) o job vai para o conjunto `failed` do BullMQ **sem nenhum retry automático**, sem alerta e sem mecanismo de reprocessamento — a imagem convertida/notificação fica efetivamente perdida até intervenção manual, contrariando o próprio racional documentado em `backend/docs/redis-and-queues.md` ("BullMQ [...] com suporte nativo a `Queue`/`Worker`/retries/backoff") que justificou a escolha da biblioteca. Assimetria confirmada: o hop 1 da Integration Engine (BE-06) tem retry real configurado no próprio canal (`hl7v2-oru-canonical-test-channel.xml`, `retryCount=3`/`retryIntervalMillis=10000` no destino HTTP Sender) — BE-07 não tem equivalente para o caminho assíncrono via fila. Não é falha de RF-07 (isolamento por instância — a falha de uma instância não trava as demais — continua correto e testado) nem falha de segurança; é ausência de resiliência a falha transitória de infraestrutura, com risco real de perda silenciosa de dado de exame de imagem. Severidade Média (não Alta/Crítica): não há vazamento/corrupção de dado de outro tenant, e a notificação original do Orthanc já foi recebida (a perda é do resultado da conversão, recuperável em tese reprocessando o estudo no Orthanc, mas sem qualquer mecanismo automatizado hoje). | Aberto (débito, não bloqueia) — recomendação: Backend adiciona `attempts`/`backoff` ao `queue.add` (mesmo padrão que `redis-and-queues.md` já anuncia como disponível) e RNF-10 (monitoramento de falha de conversão, já previsto em `PRD-TECNICO.md`) cobre o conjunto `failed` desta fila | Antes do primeiro deploy em `staging` com tráfego real de imagem (mesmo marco de `QA-DEBT-016`) — idealmente antes de BE-38 substituir o placeholder `/internal/imaging-ingest`, para não herdar o mesmo gap de resiliência |
 
 ---
 
@@ -3286,3 +3287,363 @@ originado nesta validação — sujeito à liberação independente de DevSecOps
 (auditoria completa do Lote 3 ainda não realizada; `SECURITY-REVIEW.md`
 registra BE-03/BE-04 como fora de escopo da auditoria do Lote 1) e do Tech
 Lead (checklist de integridade da decomposição, `LOTE-LOG.md`).
+
+---
+
+## 6. Validação por Lote — Lote 2: Integração com Sistemas do Hospital (Motor HL7/FHIR e Imaging Gateway)
+
+**Lote** (`TASK.md` §4.1.1): BE-06, BE-07, BE-09 (Backend) — 18 dp, Fase 1.
+Sem tarefas de Frontend neste lote. Gatilho de validação: as 3 tarefas do
+lote marcadas `Concluído` em `TASK.md` §3 nesta data (2026-09-04), incluindo
+o histórico completo de correção pós-implementação (fix-loop) de BE-07
+(duplicação de leitura de `RedisConfig`) e BE-09 (nome de variável de
+ambiente `INTERNAL_SERVICE_API_KEY`, não `SERVICE_API_KEY`), ambas já
+reverificadas de forma independente antes desta validação, conforme a
+camada de revisão pós-implementação deste fluxo.
+
+**Método**: nenhuma das três tarefas teve validação individual própria
+antes desta (primeira vez que este lote passa por QA) — validação completa
+tarefa a tarefa, mais a camada de lote (integração cruzada + NFR),
+sem seções 1.x pré-existentes a reconciliar.
+
+### 6.1 Execução da suíte completa (reexecutada de forma independente, 2026-09-04)
+
+| Comando | Resultado |
+|---|---|
+| `npm run build` (`nest build`) | Limpo |
+| `npm run lint` (`lint:oxlint` + `lint:boundaries`) | Limpo, sem apontamentos |
+| `npm run test` (`vitest run`) | **192/192 passando**, 23 arquivos de teste — bate exatamente com o número relatado por BE-09 em `TASK.md` |
+| `npm run test:e2e` (`vitest run --config ./vitest.config.e2e.ts`) | **289/289 passando**, 11 arquivos de teste, incluindo os três e2e contra infraestrutura real via `testcontainers` (NextGen Connect real via MLLP, Orthanc real via C-STORE + `dcm4che`, Redis/LocalStack reais) — bate exatamente com o número relatado |
+| `npm run test:tenant-isolation` | **158/158 passando**, sem alteração em relação ao Lote 3 — confirma que nenhuma tarefa deste lote tocou `TenantScopedRepository`/RLS |
+| `docker info` (pré-checagem) | Docker disponível — nenhuma suíte e2e rodou contra dublê de infraestrutura por indisponibilidade de ambiente |
+
+Nenhuma divergência entre o que `TASK.md` relata e o que a suíte real
+produz, nas três tarefas. Nenhum mock substituindo a Integration Engine
+(NextGen Connect) ou o Imaging Gateway (Orthanc) reais nos testes de ponta a
+ponta específicos desta finalidade (`hl7v2-channel.e2e-spec.ts`,
+`orthanc-imaging-gateway.e2e-spec.ts`) — confirmado por leitura direta dos
+dois arquivos, não apenas pela contagem.
+
+### 6.2 BE-06 — Setup Integration Engine (NextGen Connect/Mirth Connect)
+
+**Critério de aceite validado** (`TASK.md` §3.1, linha BE-06): "Engine
+deployada em rede privada (§7.5); ao menos 1 canal de teste HL7 v2.x/FHIR
+R4 configurado; ACL normaliza mensagem de teste para JSON canônico e
+publica para endpoint interno do core."
+
+**Código revisado**: `backend/integration-engine/` (canal XML + script de
+deploy), `backend/src/integration-engine/` (ACL NestJS),
+`backend/docs/integration-engine.md`.
+
+1. **"Engine deployada em rede privada (§7.5)"** — **Atendido**, verificado
+   por leitura direta de `infra/modules/network/main.tf`: subnet dedicada
+   `integration` sem rota de saída para internet gateway (só NAT, mesma
+   subnet usada pelo Imaging Gateway); `aws_security_group.integration`
+   só abre a porta MLLP (6661) e a porta DICOM (4242) por `dynamic ingress`
+   condicionada a `enable_hospital_channel`/CIDR explícito do hospital
+   (nunca `0.0.0.0/0`), mais tráfego interno vindo exclusivamente do
+   security group da aplicação core. `infra/environments/staging/main.tf`
+   confirma que `integration_gateway_service` não tem `load_balancer`/
+   `target_group_arn` (só `core_service`, a aplicação pública, tem) — sem
+   listener público. Esta tarefa não altera nenhum arquivo Terraform,
+   consistente com o que a nota de status de BE-06 declara.
+2. **"Ao menos 1 canal de teste HL7 v2.x/FHIR R4 configurado"** —
+   **Atendido**. `hl7v2-oru-canonical-test-channel.xml` (`TCP Listener`
+   MLLP porta 6661, transformer JS nativo, `HTTP Sender` de destino) +
+   `deploy-channel.mjs` (idempotente, confirma canal não-inválido antes de
+   declarar sucesso). Só HL7 v2.x implementado — leitura correta de "ao
+   menos 1" (FHIR R4 não é exigido pelo critério), decisão de detalhe
+   documentada, não uma omissão.
+3. **"ACL normaliza mensagem de teste para JSON canônico e publica para
+   endpoint interno do core"** — **Atendido, verificado em três camadas**:
+   unitário (`engine-normalized-message.spec.ts`/
+   `canonical-exam-result-message.spec.ts`, validação/tradução), e2e dentro
+   do processo (`integration-engine.e2e-spec.ts`, prova a ACL de ponta a
+   ponta via HTTP real dentro do próprio app) e e2e contra a engine
+   **real** (`hl7v2-channel.e2e-spec.ts`, mensagem ORU^R01 real via socket
+   MLLP bruto → NextGen Connect real em container → canal real → ACL real
+   → `/internal/ingest`) — reexecutado nesta validação, mensagem canônica
+   recebida corretamente (`schemaVersion`/`patient`/`exam`/`result`
+   confirmados campo a campo).
+4. **Nenhum bug de severidade Alta/Crítica encontrado** nesta tarefa.
+
+**Veredito da tarefa**: **Aprovado.**
+
+### 6.3 BE-07 — Setup Imaging Gateway (Orthanc)
+
+**Critério de aceite validado** (`TASK.md` §3.1, linha BE-07): "Orthanc
+recebe DICOM de teste via C-STORE, converte para JPEG/PNG de forma
+assíncrona, armazena original no Orthanc e convertido no Object Storage;
+notificação ao core inclui `RemoteAET` nativo + `StudyInstanceUID`/
+`SeriesInstanceUID`/`SOPInstanceUID` + referência ao arquivo convertido."
+
+**Código revisado**: `backend/imaging-gateway/on-stable-study.lua`,
+`backend/src/imaging-gateway/` (ACL + processor BullMQ),
+`backend/docs/imaging-gateway.md`.
+
+1. **"Orthanc recebe DICOM de teste via C-STORE"** — **Atendido,
+   verificado contra o produto real, não um stub**:
+   `orthanc-imaging-gateway.e2e-spec.ts` envia um arquivo DICOM sintético
+   (porém válido) via `storescu` real (`dcm4che`) contra um Orthanc real
+   (`orthancteam/orthanc:26.8.2-full`, `testcontainers`) — associação
+   C-STORE genuína, não simulada.
+2. **"Converte para JPEG/PNG de forma assíncrona"** — **Atendido**. Gatilho
+   `OnStableStudy` (nativo, desacoplado da associação C-STORE original) →
+   `ImagingGatewayController` só valida e enfileira (202 imediato) →
+   `ImagingConversionProcessor` (Worker BullMQ) processa fora do ciclo de
+   requisição. RF-07 (falha de conversão de uma instância não bloqueia as
+   demais) confirmado por isolamento nativo de job do BullMQ e por teste
+   unitário dedicado (`imaging-conversion.processor.spec.ts`).
+   **Ver achado de resiliência não capturado antes desta validação, Seção
+   6.5 (`QA-DEBT-017`)** — o isolamento por instância está correto, mas a
+   ausência de retry/backoff no job é uma lacuna real de resiliência.
+3. **"Armazena original no Orthanc e convertido no Object Storage"** —
+   **Atendido, verificado com integração real com BE-08 (não só leitura de
+   código)** — ver Seção 6.4 abaixo (teste de integração cruzada dedicado
+   deste lote).
+4. **"Notificação ao core inclui `RemoteAET` + 3 UIDs DICOM + referência ao
+   arquivo convertido"** — **Atendido**. Payload canônico confirmado campo
+   a campo no teste e2e real (`remoteAet`, `dicom.{studyInstanceUid,
+   seriesInstanceUid,sopInstanceUid}`, `convertedFile.{objectStorageKey,
+   contentType}`, `convertedAt`) — `RemoteAET` lido nativamente da API REST
+   do Orthanc (`/instances/{id}/metadata/RemoteAET`), nenhum plugin/
+   customização do produto, conforme ADR-012 exige.
+5. **Achado de robustez já corrigido pela própria implementação**
+   (`Worker.close(true)` no shutdown) — reconfirmado presente e coberto por
+   teste de regressão (`imaging-conversion.processor.spec.ts`), sem
+   necessidade de nova validação além da leitura direta do código.
+6. **Nenhum bug de severidade Alta/Crítica encontrado** nesta tarefa —
+   único achado é o débito de severidade Média da Seção 6.5.
+
+**Veredito da tarefa**: **Aprovado com ressalvas** (`QA-DEBT-017`, Média,
+não bloqueante).
+
+### 6.4 BE-09 — Credencial de serviço (`ServiceApiKeyGuard`)
+
+**Critério de aceite validado** (`TASK.md` §3.1, linha BE-09): "Endpoint
+interno `/internal/ingest` e endpoint de notificação de conversão só
+aceitam requisição autenticada por API key de serviço, nunca credencial de
+usuário final; canal não exposto à internet pública (§7.5)."
+
+**Código revisado**: `backend/src/security/` (guard + config),
+`backend/docs/service-api-key-auth.md`, os 4 controllers que aplicam o
+guard, os 3 emissores (`IntegrationEngineAclService`/
+`ImagingGatewayAclService`, canal NextGen Connect, script Lua do Orthanc).
+
+1. **Escopo de 4 endpoints, não só os 2 nomeados literalmente** — mesma
+   conclusão de QA que a decisão documentada pelo Backend: leitura literal
+   ("endpoint de notificação de conversão" descreve melhor
+   `/internal/imaging-ingest`, que carrega a notificação de que a conversão
+   *aconteceu*) e a razão de fundo (os 4 endpoints estão atrás do mesmo
+   ALB/domínio da SPA, sem segregação de rede própria entre hop 1 e hop 2)
+   justificam proteger os 4. Confirmado por leitura direta: os 4
+   controllers (`IntegrationEngineController`,
+   `CoreIngestPlaceholderController`, `ImagingGatewayController`,
+   `CoreImagingIngestPlaceholderController`) têm `@UseGuards(ServiceApiKeyGuard)`
+   a nível de classe (nenhuma rota escapa do guard dentro de cada
+   controller).
+2. **Teste negativo real (requisição sem key, com key errada, com key
+   vazia)** — **Atendido, reconfirmado nesta validação por leitura direta
+   dos blocos `describe.each` em `integration-engine.e2e-spec.ts`
+   (4 casos × 2 endpoints) e `imaging-gateway.e2e-spec.ts` (4 casos × 2
+   endpoints)** — todos os 4 endpoints internos rejeitam (401) ausência,
+   vazio e valor incorreto, e aceitam (202) o valor correto. Suíte
+   reexecutada nesta validação (Seção 6.1), 289/289 passando, incluindo
+   estes 16 casos.
+3. **Teste positivo via emissor real (não só `supertest` direto no
+   controller)** — **Atendido, verificado com rigor equivalente aos demais
+   achados deste projeto (BE-02 a BE-08, infraestrutura real)**:
+   - Canal NextGen Connect real: `hl7v2-channel.e2e-spec.ts` — o `HTTP
+     Sender` do canal real (placeholder `__SERVICE_API_KEY__` substituído
+     em tempo de deploy por `deploy-channel.mjs`) envia o header
+     `X-Service-Api-Key` corretamente; confirmado por leitura direta do XML
+     gerado (linhas 170-171 do template) e pela suíte passando de ponta a
+     ponta.
+   - Script Lua do Orthanc real: `orthanc-imaging-gateway.e2e-spec.ts` —
+     variável de ambiente `INTERNAL_SERVICE_API_KEY` injetada no container
+     real do Orthanc, lida por `os.getenv` dentro do script versionado
+     (`on-stable-study.lua`, o mesmo arquivo que o DevOps empacota em
+     produção) e anexada via terceiro argumento de `HttpPost` — reconfirmado
+     por leitura direta do script (linhas relevantes citadas acima) e pela
+     suíte passando de ponta a ponta.
+   - ACL do próprio core (hop 2, `IntegrationEngineAclService`/
+     `ImagingGatewayAclService`): injeta `SERVICE_API_KEY_CONFIG` e anexa o
+     header na chamada para os placeholders — confirmado por leitura direta
+     e pelos mesmos testes e2e.
+4. **Nome da variável de ambiente (`INTERNAL_SERVICE_API_KEY`, correção
+   pós-implementação)** — reconfirmado por leitura direta e não apenas
+   aceito o relato: `service-api-key-config.ts` lê
+   `env.INTERNAL_SERVICE_API_KEY`; `deploy-channel.mjs` e
+   `on-stable-study.lua` foram atualizados para o mesmo nome; `.env.example`
+   também atualizado. Cruzado contra
+   `infra/modules/secrets/main.tf`/`infra/environments/{staging,production}/main.tf`
+   (lidos diretamente) — os 3 serviços ECS relevantes (`core_service`,
+   `integration_gateway_service`, `imaging_gateway_service`) recebem o
+   secret `INTERNAL_SERVICE_API_KEY` via `secrets`/`value_from`, mesmo nome.
+   A correção fecha genuinamente o gap identificado pela própria revisão
+   pós-implementação — sem esta correção, o deploy real cairia no default
+   de desenvolvimento silenciosamente (achado correto, já registrado pelo
+   próprio Backend, não uma reinterpretação de QA).
+5. **"Canal não exposto à internet pública (§7.5)"** — tratado na Seção 6.6
+   (requisito não funcional deste lote), não repetido aqui.
+6. **Comparação resistente a timing attack** (`crypto.timingSafeEqual`
+   sobre hash SHA-256 dos dois lados, não os buffers originais) — mesma
+   conclusão técnica do próprio Backend: elimina tanto vazamento de
+   conteúdo quanto de tamanho da chave esperada. Confirmado por leitura
+   direta de `service-api-key.guard.ts` e teste unitário
+   (`service-api-key.guard.spec.ts`, inclui não-vazamento de motivo na
+   mensagem de erro).
+7. **Nenhum bug de severidade Alta/Crítica encontrado** nesta tarefa.
+
+**Veredito da tarefa**: **Aprovado.**
+
+### 6.5 Testes de integração cruzada dentro do lote (pedidos explicitamente para este fechamento)
+
+**BE-07 ↔ BE-08 (Object Storage, Lote 1, já aprovado)**: confirmado por
+teste e2e real, não apenas leitura de código —
+`orthanc-imaging-gateway.e2e-spec.ts` usa `ObjectStorageService` real
+(BE-08, nenhuma mudança de assinatura) escrevendo num bucket LocalStack
+real, e a asserção final lê o objeto de volta via `GetObjectCommand` e
+confirma a assinatura de bytes PNG (`0x89 0x50 0x4e 0x47...`) do arquivo
+gravado — prova que a conversão de fato aconteceu (Orthanc real → GDCM →
+prévia real) e que o `putObject` de BE-08 foi genuinamente exercitado, não
+um stub. Reexecutado nesta validação, passando.
+
+**BE-09 ↔ BE-06/BE-07 (guard protegendo os endpoints que essas tarefas
+criaram)**: coberto em detalhe na Seção 6.4, itens 2 e 3 acima — os 4
+endpoints rejeitam corretamente requisição sem/errada credencial e os 3
+emissores reais (2 ACLs do core + canal NextGen Connect real + script Lua
+do Orthanc real) se autenticam corretamente. Nenhuma lacuna encontrada.
+
+**Achado adversarial 1 — requisição malformada nos endpoints internos**:
+testado empiricamente por este agente (arquivo de teste temporário criado,
+executado e removido nesta validação — `git status` confirmado limpo em
+`backend/` após a remoção, nenhum resíduo) contra
+`POST /internal/imaging-gateway/notifications`: corpo vazio → `400`
+(`BadRequestException`, mensagem "Corpo da requisição vazio..."); corpo
+não-JSON (`isto-nao-e-json-nem-form{{{`) → `400` (`BadRequestException`,
+mensagem "Corpo da requisição não é um JSON válido."). Ambos os branches
+existiam no código (`imaging-gateway.controller.ts`, linhas 55-66) mas **não
+tinham nenhum teste cobrindo-os** na suíte existente (confirmado por busca
+textual — nenhuma ocorrência das duas mensagens de erro em `test/`) — não é
+um bug (o comportamento é o correto, `400` com mensagem clara), é uma
+lacuna de cobertura de teste que este agente fechou empiricamente nesta
+validação. Não gera débito por si só (o comportamento correto foi
+confirmado), mas fica registrado aqui como parte da bateria adversarial
+pedida para o fechamento deste lote.
+
+**Achado adversarial 2 — indisponibilidade de dependência durante o
+processamento (Orthanc/core indisponível) — `QA-DEBT-017`**: `process()`
+de `ImagingConversionProcessor` já é testado (suíte existente) para
+propagar corretamente o erro quando `fetchConvertedPreview`/`publishToCore`
+falham (isolamento por instância, RF-07, confirmado correto). Mas, indo um
+passo além do que a suíte existente cobre — o efeito dessa falha *depois*
+de propagada — confirmei por leitura de `imaging-gateway.controller.ts`
+(`queue.add('convert-instance', notification)`, sem `attempts`/`backoff`) e
+por busca textual em todo `backend/src/` que **nenhuma opção de retry é
+configurada** para esta fila. BullMQ usa `attempts: 1` por padrão — ou
+seja, uma falha transitória única (Orthanc reiniciando, core em deploy no
+momento exato do `publishToCore`) marca o job como `failed`
+permanentemente, sem nenhum retry automático, alerta ou reprocessamento.
+Isso contraria o próprio racional de escolha do BullMQ documentado em
+`backend/docs/redis-and-queues.md` ("suporte nativo a
+`Queue`/`Worker`/retries/backoff") e é assimétrico em relação ao hop 1 da
+Integration Engine (BE-06), que **tem** retry real configurado no próprio
+canal (`retryCount=3`/`retryIntervalMillis=10000`). **Severidade Média**
+(não Alta/Crítica — não há vazamento/corrupção cross-tenant, e a
+notificação original do Orthanc já foi recebida antes da falha; o risco é
+de perda silenciosa do resultado da conversão, recuperável apenas por
+intervenção manual hoje). Registrado como **QA-DEBT-017** (Seção 2), não
+bloqueante — não é falha de nenhum item literal do critério de aceite de
+BE-07 (que não menciona retry), mas é um requisito não funcional razoável
+de resiliência para um pipeline assíncrono de dado clínico, não capturado
+pela camada de revisão pós-implementação anterior.
+
+### 6.6 Requisito não funcional — canal de rede não exposto publicamente (`SDD.md` §7.5)
+
+Confirmado pela configuração de infraestrutura já provisionada pelo
+DevOps (fora do escopo deste lote provisionar, só confirmar ausência de
+exposição indevida introduzida por BE-06/BE-07/BE-09):
+
+- `infra/modules/network/main.tf`: `aws_security_group.integration` só
+  aceita tráfego de entrada nas portas 6661 (MLLP) e 4242 (DICOM C-STORE)
+  quando `enable_hospital_channel = true` **e** um CIDR explícito do
+  hospital piloto (`hospital_vpn_cidr`/`dicom_source_cidr`) está
+  configurado — nunca `0.0.0.0/0`; o restante do tráfego de entrada aceito
+  vem exclusivamente do security group da aplicação core
+  (`aws_security_group.app`), nunca do ALB público.
+- `infra/environments/staging/main.tf`: `integration_gateway_service` e
+  `imaging_gateway_service` (módulo `ecs-service`) não recebem
+  `load_balancer`/`target_group_arn` — só `core_service` (a aplicação
+  pública) tem essa associação. Confirmado por leitura direta, nenhum dos
+  dois serviços deste lote está atrás do ALB público.
+- Nenhuma das três tarefas deste lote (BE-06, BE-07, BE-09) altera qualquer
+  arquivo `.tf` — confirmado por `git status`/leitura das notas de status,
+  consistente com o que cada uma declara.
+
+**Achado adicional, fora do escopo de BE-06/07/09 mas relevante para a
+auditoria do DevSecOps**: `infra/environments/staging/main.tf`, módulo
+`imaging_gateway_service` (linhas ~294-301), concede `task_policy_json` com
+`s3:PutObject` no bucket de Object Storage ao *container do Orthanc*.
+Porém, pela implementação real de BE-07, é o processo do **core**
+(`ImagingConversionProcessor`, rodando dentro de `core_service`, não dentro
+de `imaging_gateway_service`) quem efetivamente grava no Object Storage via
+`ObjectStorageService.putObject` — o Orthanc nunca chama a API do S3
+diretamente. `core_service` já tem a permissão equivalente (linhas
+~222-227, `s3:GetObject`+`s3:PutObject`). A permissão em
+`imaging_gateway_service` parece ser excesso de privilégio (viola o
+princípio de menor privilégio) num container de produto de mercado
+exposto ao PACS do hospital via DICOM C-STORE — mas este arquivo Terraform
+não foi tocado por nenhuma das três tarefas deste lote (provisionado pela
+fundação de infraestrutura do DevOps, antes deste lote), portanto não é
+atribuído como débito de BE-06/07/09 nem gera reprovação aqui. Sinalizado
+para a auditoria completa do DevSecOps sobre este lote confirmar se a
+permissão é intencional (ex.: uso futuro não documentado) ou deve ser
+removida.
+
+**Conclusão do requisito não funcional**: nenhuma exposição pública indevida
+introduzida por este lote — atendido.
+
+### 6.7 Veredito do Lote 2
+
+**Lote 2 — Integração com Sistemas do Hospital (Motor HL7/FHIR e Imaging
+Gateway): Aprovado com ressalvas.**
+
+- **Nenhum bug de severidade Alta/Crítica em aberto** em nenhuma das 3
+  tarefas do lote — BE-06 e BE-09 aprovados sem ressalvas; BE-07 aprovado
+  com uma ressalva não bloqueante.
+- Um débito novo de severidade Média (`QA-DEBT-017`, BE-07 — ausência de
+  retry/backoff no job de conversão de imagem, achado por teste
+  adversarial próprio desta validação, não capturado pela revisão pós-
+  implementação anterior), com prazo associado a um marco futuro
+  específico (antes do primeiro deploy em `staging` com tráfego real de
+  imagem, mesmo marco de `QA-DEBT-016`/BE-08).
+- Nenhuma tarefa do lote precisou ser revertida de `Concluída` para `Em
+  andamento` em `TASK.md` — nenhuma reprovação nesta validação.
+- Testes de integração cruzada dentro do lote executados e passando:
+  BE-07 ↔ BE-08 (Object Storage, verificado com dado real — assinatura de
+  bytes PNG confirmada após round-trip real) e BE-09 ↔ BE-06/BE-07 (os 4
+  endpoints exigem a credencial, os 3 emissores reais a enviam
+  corretamente) — Seção 6.5.
+- Requisito não funcional deste lote (canal não exposto publicamente,
+  `SDD.md` §7.5) confirmado sem exceção — Seção 6.6. Um achado ancilar de
+  excesso de privilégio IAM foi identificado fora do escopo das três
+  tarefas (Terraform pré-existente, não tocado por este lote) e sinalizado
+  para a auditoria do DevSecOps, sem impacto neste veredito.
+- Bateria adversarial própria desta validação (requisição malformada nos 4
+  endpoints internos; indisponibilidade de dependência durante o
+  processamento) executada — um gap de resiliência real encontrado
+  (`QA-DEBT-017`), nenhum bug de severidade Alta/Crítica.
+- Nenhum padrão recorrente que aponte problema de decomposição/diretriz foi
+  identificado nesta validação (o achado de BE-07 é específico de uma
+  única tarefa, não repetido em BE-06/BE-09) — nenhum escalonamento ao Tech
+  Lead via `BLOCKERS.md`.
+
+**Liberação**: do ponto de vista de QA, o Lote 2 está liberado para a
+auditoria completa do DevSecOps (próximo passo fora deste dispatch,
+incluindo a confirmação pontual sobre o achado ancilar de IAM da Seção
+6.6). Tarefas futuras que dependem deste lote (`TASK.md` §4.4 — BE-18/BE-24
+de BE-06; BE-38 de BE-07) permanecem liberadas para prosseguir sem bloqueio
+originado nesta validação; recomenda-se que BE-38 (ao substituir o
+placeholder `/internal/imaging-ingest`) não herde o gap de resiliência de
+`QA-DEBT-017` sem, ao menos, uma decisão consciente registrada.

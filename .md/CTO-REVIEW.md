@@ -789,3 +789,130 @@ este gate**, não é absorvido silenciosamente pelo time de execução):
 **Backend e Frontend estão liberados para iniciar a Fase 0 do cronograma
 (`TASK.md` §4.2) a partir deste registro**, sujeitos às condições 2-4 acima
 serem endereçadas nas primeiras semanas, não antes do início.
+
+---
+
+## Gate 3 (reabertura pontual) — Retrabalho Visual "Painel de Saúde" — 2026-09-04
+
+**Skill aplicada**: `capacity-and-timeline-validation`, com escopo restrito ao
+que o próprio Tech Lead delimitou (não o `TASK.md` inteiro): risco R1
+(composição do squad de Frontend) e R8, novo (Seção 5), e o sequenciamento do
+novo Lote 11 (Seção 4.1/4.1.3).
+**Input avaliado**: `TASK.md` (revisão de 2026-09-04 — Seção 3.17/Lote 11,
+FE-23 a FE-29; Seção 5, risco R8; "Nota pós-Gate 3 (2026-09-04)") +
+`UX-SPEC.md` (revisão de 2026-09-04, nota de topo + Seções 3.1/3.1.1/3.3/5/6/
+7.4) + `CTO-REVIEW.md` (Gate 3 original, 2026-09-02) + decisão do stakeholder
+do produto, comunicada fora deste pipeline formal e refletida em `UX-SPEC.md`/
+`TASK.md`.
+
+> Escopo desta reabertura: estritamente pontual, conforme delimitado pelo
+> próprio Tech Lead. Backend, escopo geral, arquitetura e as demais condições
+> de acompanhamento já registradas no Gate 3 original (2026-09-02) **não são
+> reavaliadas** — permanecem exatamente como aprovadas naquela data.
+
+### Fato-base: origem da decisão
+
+O retrabalho visual "Painel de Saúde" e a manutenção da squad em 1
+desenvolvedor Frontend, mesmo com o cronograma se estendendo além da janela
+de referência, **não são recomendações deste pipeline de agentes** — são
+decisões já tomadas pelo stakeholder do produto, autoridade de negócio do
+projeto, fora deste fluxo formal, apenas formalizadas nos artefatos técnicos
+(`UX-SPEC.md` pela UX/UI, `TASK.md` pelo Tech Lead). Este gate não reavalia o
+mérito de "é uma boa ideia redesenhar" nem de "1 dev é suficiente" — isso não
+é decisão técnica revisável por este agente. O papel deste registro é
+formalizar a mudança de condição de capacidade/prazo que decorre dessa
+decisão, dentro da autoridade de veto vinculante deste CTO sobre o Gate 3, e
+confirmar que nenhum risco técnico fica silenciosamente absorvido atrás da
+decisão de negócio.
+
+### Confirmação quantitativa (R1/R8)
+
+Confirmo o recálculo da Seção 5 do Tech Lead: com o esforço de Frontend
+revisado (~132 dp buferizado; 115 dp sem buffer, 88+27), o cenário "1
+desenvolvedor Frontend" deixa de caber mesmo no teto de 20 semanas da
+Premissa P3 (100 dp de capacidade) — déficit de ~32 dp (~32%), não uma
+diferença de arredondamento. Esse número já era o limite de "folga zero" no
+Gate 3 original (2026-09-02, Seção 1.1) — o retrabalho consome exatamente a
+folga que já era zero.
+
+Diferente do Gate 3 original, porém, esta condição **não é mais uma decisão
+de composição de squad em aberto para este gate arbitrar**: o stakeholder do
+produto já decidiu explicitamente **manter a squad em 1 desenvolvedor
+Frontend** e **aceitar a extensão do cronograma além das 20 semanas de
+referência**, em vez de reforçar a squad — não há urgência de prazo declarada
+para este projeto. Este CTO não questiona essa decisão de negócio (fora de
+sua alçada arbitrar prazo vs. custo de squad quando o dono do orçamento já
+decidiu) — o papel deste gate é confirmar que a decisão está registrada, é
+internamente consistente com o restante do `TASK.md`, e não deixa risco
+técnico/arquitetural sem tratamento por trás da decisão de prazo.
+
+### O que muda na leitura do risco
+
+- **R1/R8 deixam de ser risco em aberto pendente de decisão do Gate 3** e
+  passam a ser uma **condição aceita do projeto**: 1 desenvolvedor Frontend,
+  cronograma de Frontend estendido além das 20 semanas de referência da
+  Premissa P3. A leitura técnica de que 2 devs Frontend seria a composição de
+  menor risco de calendário/QA (Gate 3 original, Seção 1.1) não é revogada
+  como constatação técnica, mas deixa de ser condição de aprovação — a
+  autoridade de negócio que arca com o risco de calendário já decidiu
+  conscientemente aceitá-lo.
+- A janela de 20 semanas usada como referência no `TASK.md`/`CTO-REVIEW.md`
+  (Gate 3 original) **deixa de ser a expectativa vigente de conclusão do
+  Frontend** no cenário real de 1 dev — não é mais um teto a comunicar como
+  meta para a frente de Frontend. Recalcular a nova baliza formal de prazo
+  continua sendo prerrogativa do Tech Lead, não deste gate.
+- Nenhum risco de QA (R5), Backend, arquitetura ou compliance é reaberto por
+  esta decisão — confirmado que o retrabalho é 100% Frontend/apresentação,
+  sem novo campo de schema ou contrato de API (já verificado pelo próprio
+  Tech Lead na Seção 6 do `TASK.md`: "nenhuma lacuna estrutural encontrada").
+- Ressalva de acompanhamento, não bloqueante: QA/DevSecOps precisarão
+  revalidar telas/componentes já aprovados uma vez (Lote 1 inteiro + FE-05/
+  06/07) sob a nova direção visual — o próprio R8 do Tech Lead já nomeia essa
+  pressão adicional sobre R5 (QA, recurso mais apertado do projeto, Gate 3
+  original). Não é reaberto aqui como risco novo, mas fica reforçado: o
+  cronograma estendido de Frontend (aceito pelo stakeholder) desloca quando o
+  QA recebe telas prontas para validar, e essa comunicação com o QA é do
+  Tech Lead, não deste gate.
+
+### Veredito
+
+**Reabertura pontual do Gate 3 (R1/R8 e Seção 4.1/4.1.3 do `TASK.md`):
+Aprovada, sem ressalva bloqueante.**
+
+1. Composição de squad de Frontend confirmada: **1 desenvolvedor**, por
+   decisão do stakeholder do produto (fora deste pipeline de agentes), não
+   por recomendação técnica deste CTO nem do Tech Lead — registrado aqui para
+   que nenhum agente downstream leia isso como "o CTO decidiu que 1 dev
+   basta". Este CTO mantém o entendimento técnico de que 2 devs seria a
+   composição de menor risco de calendário/QA (análise original de
+   2026-09-02) — a diferença é que o dono do risco de prazo já decidiu
+   conscientemente aceitar o cenário de maior risco, e não há urgência que
+   torne essa aceitação desproporcional.
+2. O cronograma de referência de 20 semanas **deixa de se aplicar** como
+   expectativa de conclusão do Frontend neste projeto — R1/R8 fecham como
+   condição aceita do projeto, não como pendência em aberto. Qualquer
+   comunicação futura de prazo relativa ao Frontend deve refletir a extensão
+   além das 20 semanas, não o teto original.
+3. Sequenciamento do Lote 11 (Seção 4.1/4.1.3 do `TASK.md`) confirmado como
+   aceitável do ponto de vista de capacidade/calendário, condicionado à mesma
+   composição de squad (1 Frontend) — sem objeção adicional.
+4. **Escopo desta aprovação é estritamente o delimitado pelo Tech Lead na
+   "Nota pós-Gate 3 (2026-09-04)"** — Backend, os demais riscos (R2-R7),
+   arquitetura e as condições de acompanhamento 1-7 já registradas no Gate 3
+   original (2026-09-02) permanecem inalteradas e não são reabertas por este
+   registro.
+
+**Ação devolvida ao Tech Lead** (dono do `TASK.md` — este CTO não edita o
+artefato diretamente, conforme guardrail próprio): atualizar, na próxima
+revisão de `TASK.md`, o status de R1/R8 (Seção 5) e a "Nota pós-Gate 3
+(2026-09-04)" para refletir o fechamento formal registrado aqui — de
+"reabertura pontual em aberto, aguardando confirmação do Gate 3" para
+"fechada, decisão aceita do projeto (1 dev Frontend, cronograma estendido
+além de 20 semanas)", com referência a este registro do `CTO-REVIEW.md`.
+
+**Nenhuma entrada em `BLOCKERS.md` é necessária**: não há conflito entre
+agentes a arbitrar (a decisão de negócio já chegou resolvida da autoridade de
+produto, não de um agente do pipeline reportando inconsistência) — este
+registro em `CTO-REVIEW.md` é o mecanismo de governança correto para o
+fechamento de uma reabertura pontual de gate, análogo ao fechamento do
+próprio Gate 3 original.

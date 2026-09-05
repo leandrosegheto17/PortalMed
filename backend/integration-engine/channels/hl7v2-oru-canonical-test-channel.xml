@@ -2,7 +2,7 @@
   <id>f47b6c1a-6e46-4a4a-9d0a-00000000be06</id>
   <nextMetaDataId>2</nextMetaDataId>
   <name>portalmed-hl7v2-oru-canonical-test</name>
-  <description>BE-06 (TASK.md) - Canal de teste HL7 v2.x MLLP (ORU^R01) da Integration Engine (NextGen Connect). Recebe o laudo via MLLP na porta 6661 (mesma porta ja reservada em infra/modules/network/main.tf para o canal MLLP do hospital piloto), extrai os campos HL7 relevantes via um step JavaScript (recurso nativo do motor, nao um parser HL7 proprio do monolito core - ADR-002/GUARDRAILS.md item 11) e publica o envelope normalizado via HTTP POST para a Anti-Corruption Layer do core (backend/src/integration-engine/). O host de destino abaixo (__CORE_INGEST_ACL_URL__) e substituido em tempo de deploy por backend/integration-engine/deploy-channel.mjs - nunca hardcoded para um ambiente especifico (TASK.md secao 1.1).</description>
+  <description>BE-06 (TASK.md) - Canal de teste HL7 v2.x MLLP (ORU^R01) da Integration Engine (NextGen Connect). Recebe o laudo via MLLP na porta 6661 (mesma porta ja reservada em infra/modules/network/main.tf para o canal MLLP do hospital piloto), extrai os campos HL7 relevantes via um step JavaScript (recurso nativo do motor, nao um parser HL7 proprio do monolito core - ADR-002/GUARDRAILS.md item 11) e publica o envelope normalizado via HTTP POST para a Anti-Corruption Layer do core (backend/src/integration-engine/). O host de destino abaixo (__CORE_INGEST_ACL_URL__) e substituido em tempo de deploy por backend/integration-engine/deploy-channel.mjs - nunca hardcoded para um ambiente especifico (TASK.md secao 1.1). BE-09: o header X-Service-Api-Key abaixo (__SERVICE_API_KEY__, mesmo mecanismo de substituicao) autentica esta chamada contra o ServiceApiKeyGuard de IntegrationEngineController - GUARDRAILS.md item 13.</description>
   <revision>0</revision>
   <sourceConnector version="4.5.2">
     <metaDataId>0</metaDataId>
@@ -165,6 +165,10 @@ channelMap.put('engineNormalizedJson', JSON.stringify(canonical));]]></script>
           <entry>
             <string>Content-Type</string>
             <list><string>application/json</string></list>
+          </entry>
+          <entry>
+            <string>X-Service-Api-Key</string>
+            <list><string>__SERVICE_API_KEY__</string></list>
           </entry>
         </headers>
         <parameters class="linked-hash-map"/>

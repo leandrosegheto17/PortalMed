@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { SecurityModule } from '../security/index.js';
 import { INTEGRATION_ENGINE_CONFIG } from './integration-engine.tokens.js';
 import { loadIntegrationEngineConfig } from './integration-engine-config.js';
 import { IntegrationEngineAclService } from './integration-engine-acl.service.js';
@@ -24,8 +25,13 @@ import { CoreIngestPlaceholderController } from './core-ingest-placeholder.contr
  * domínio não muda) — é um componente de integração/borda, mesma categoria
  * arquitetural do próprio Integration Gateway (`SDD.md` §1.3, item 4),
  * só que a parte que roda dentro do processo do core.
+ *
+ * Importa `SecurityModule` (BE-09) — os dois controllers usam
+ * `@UseGuards(ServiceApiKeyGuard)`, que precisa resolver a dependência via
+ * o injector deste módulo.
  */
 @Module({
+  imports: [SecurityModule],
   controllers: [IntegrationEngineController, CoreIngestPlaceholderController],
   providers: [
     { provide: INTEGRATION_ENGINE_CONFIG, useFactory: () => loadIntegrationEngineConfig() },

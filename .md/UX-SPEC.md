@@ -1,15 +1,63 @@
 # UX-SPEC.md — Portal de Resultados de Exames (Aplicação White Label para Hospitais)
 
 **Dono**: UX/UI
-**Data**: 2026-09-02
-**Status**: Completo e **liberado para o Tech Lead** — checklist de Critérios de
-Pronto ao final deste documento, todos os itens verificados, incluindo a resolução
-do único bloqueio aberto durante este trabalho (ver nota abaixo). Publicado para o
-Tech Lead (estimativa de esforço) e, como contexto futuro, Frontend/Mobile/QA.
+**Data**: 2026-09-02 (revisado em 2026-09-04)
+**Status**: **Revisado — nova direção visual vigente ("Painel de Saúde")**, liberado
+incrementalmente para o Tech Lead replanejar. Checklist de Critérios de Pronto ao
+final deste documento reavaliado após a revisão (ver nota de revisão abaixo).
+Publicado para o Tech Lead (replanejamento/reestimativa) e, como contexto futuro,
+Frontend/Mobile/QA.
 **Input**: `SDD.md` (aprovado no Gate 2 do CTO, **Aprovado com ressalvas**,
 2026-09-02, `CTO-REVIEW.md`; releitura pós-resolução do Bloqueio 001 em
 2026-09-02, com ADR-011 e nova §7.7) + `PRD-TECNICO.md` (Business Analyst,
-2026-09-02) + `PRD.md` Seção 4.1 (PM, escopo do MVP)
+2026-09-02) + `PRD.md` Seção 4.1 (PM, escopo do MVP) + decisão de produto do
+stakeholder (2026-09-04, fora do pipeline formal — mockups visuais em ferramenta de
+design, três direções exploradas, uma escolhida — ver nota de revisão abaixo)
+
+> **Nota de revisão (2026-09-04) — mudança de direção visual ("Painel de Saúde"),
+> decidida pelo stakeholder do produto**: o dono do produto pediu exploração de um
+> layout "mais inovador e moderno", gerou 3 direções visuais fora deste pipeline
+> formal (mockups, ferramenta de design externa) e **decidiu formalmente adotar**
+> a direção apelidada "Painel de Saúde" e **retrabalhar** o que já foi implementado
+> e aprovado por QA/DevSecOps (Lote 1 completo — FE-01 a FE-04 — e parte do Lote 4
+> — FE-05 a FE-07), mesmo com conhecimento de que isso gera retrabalho sobre código
+> já aprovado. Esta não é uma inconsistência encontrada por um agente durante
+> implementação — é uma decisão de produto tomada pelo stakeholder, com o trade-off
+> de retrabalho assumido conscientemente por ele.
+>
+> **O que esta revisão muda, e onde**: paradigma de layout autenticado (Seção 3.1 —
+> `Header` + `Navegação Principal` horizontal são **substituídos** por barra de
+> navegação lateral fixa + área de conteúdo com fundo neutro); paradigma de layout
+> pré-autenticação (Seção 3.1 — fundo em degradê escuro + cartão de autenticação
+> centralizado, novo componente); tokens de sistema (Seção 3.3 — cores, tipografia,
+> raio de borda, todos recalculados e revalidados contra WCAG 2.1 AA nesta revisão,
+> não copiados de valor sugerido sem checagem); Acessibilidade (Seção 5 — regras de
+> navegação por teclado da barra lateral, comportamento em mobile, contraste dos
+> novos tokens escuros, todas revalidadas); Comportamento Responsivo (Seção 6 —
+> novo comportamento de colapso da barra lateral em mobile). O alvo de toque mínimo
+> de 44px (Seção 5.1) **não muda** — mantido sem exceção.
+>
+> **O que esta revisão NÃO reescreve linha a linha**: as 35 entradas de wireframe
+> da Seção 2 (TL-01 a TL-35) **não foram reescritas individualmente** — a mudança é
+> inteiramente capturada pela atualização dos componentes estruturais transversais
+> (Seção 3.1) e dos tokens (Seção 3.3), que toda tela já referenciava por
+> composição, não por descrição própria de header/navegação. Isso é uma decisão
+> deliberada, não uma omissão: onde uma tela precisa de leitura própria por causa
+> da mudança de casca estrutural (ex.: qual paradigma — barra lateral ou cartão de
+> autenticação — se aplica a cada tela), isso está mapeado explicitamente na nova
+> Seção 3.1.1 (tabela de aplicação por tela), não deixado implícito.
+>
+> **Autoridade e limites desta revisão**: dentro da autoridade normal do UX/UI —
+> nenhuma restrição técnica do `SDD.md` foi violada ou exigiu decisão do Software
+> Architect (ver Seção 7.4, novo, para a checagem formal); ambiguidades do pedido
+> do stakeholder (escopo exato de telas pré-autenticação, formato do colapso da
+> barra lateral em mobile, se o cartão de indicador vira padrão formal) foram
+> resolvidas por julgamento normal de UX/UI, documentadas explicitamente nos pontos
+> em que a decisão foi tomada, não deixadas implícitas.
+>
+> **Encaminhamento**: cabe ao **Tech Lead** planejar o retrabalho (reestimativa de
+> FE-01 a FE-07 e qualquer tarefa dependente, novos lotes se necessário) a partir
+> desta versão do documento — UX/UI não decide `TASK.md`, esforço ou lotes.
 
 > Este é o **primeiro** `UX-SPEC.md` do projeto — não existe design system prévio a
 > reaproveitar. Todo componente listado na Seção 3 é, por definição, novo; a marcação
@@ -52,9 +100,13 @@ envolvido em nenhum passo. O paciente só volta a aparecer no modelo *pull* já 
 pelo fluxo 4.4 (TL-21). Não há tela a mapear aqui — registrado para rastreabilidade,
 não como lacuna.
 
-Telas globais/persistentes (não amarradas a um único fluxo, usadas em todas as
-telas autenticadas): Header institucional (branding dinâmico por tenant), Navegação
-Principal, Footer institucional. Ver Seção 3.
+Telas globais/persistentes (não amarradas a um único fluxo): a partir da revisão de
+2026-09-04, a casca estrutural passa a ser **Barra de Navegação Lateral** (telas
+autenticadas de paciente/administrador) ou **Cartão de Autenticação sobre fundo em
+degradê** (telas pré-autenticação) — `Header` institucional de topo e `Navegação
+Principal` horizontal, como componentes estruturais únicos de toda tela, estão
+**substituídos**. Footer institucional permanece, reposicionado conforme casca
+(ver Seção 3.1). Ver Seção 3.1 e 3.1.1 (tabela de aplicação de casca por tela).
 
 ---
 
@@ -327,15 +379,31 @@ declarado, RN-13 — sem SLA formal nesta release)
 ## 2. Wireframes / Descrição de Layout por Tela
 
 > Layout descrito em blocos funcionais (região → conteúdo), não em pixel exato —
-> grid e breakpoint exatos ficam na Seção 6. Todas as telas autenticadas
-> compartilham o mesmo Header/Footer (Seção 3.1), omitido na descrição individual
-> abaixo para não repetir.
+> grid e breakpoint exatos ficam na Seção 6. Todas as telas compartilham a mesma
+> casca estrutural do seu grupo (barra de navegação lateral + Footer, para telas
+> autenticadas; fundo em degradê + Cartão de Autenticação, para telas
+> pré-autenticação — Seção 3.1 e 3.1.1), omitida na descrição individual abaixo
+> para não repetir. **Nota de revisão (2026-09-04)**: as descrições de layout
+> abaixo (blocos internos de cada tela: formulário, lista, mensagens) não foram
+> reescritas nesta revisão — a mudança de casca estrutural (Header/Navegação →
+> barra lateral ou cartão de autenticação) é tratada de forma centralizada na
+> Seção 3.1/3.1.1, não repetida tela a tela. Onde uma descrição abaixo ainda
+> menciona "Header" explicitamente (ex.: TL-01), leia como a casca vigente da
+> Seção 3.1 para o grupo daquela tela, não como o componente antigo.
 
 ### TL-01 — Landing Pública
-- Header: logo do hospital (branding dinâmico, RF-11), nome institucional.
-- Bloco central: mensagem de boas-vindas curta, dois CTAs primários — "Entrar" e
-  "Criar conta".
-- Footer: links institucionais (Termos de Uso, Política de Privacidade, Ajuda).
+
+**Atualizado nesta revisão (2026-09-04)** — casca pré-autenticação (Seção 3.1.1):
+- Fundo: degradê escuro derivado da cor de marca do hospital (Seção 3.3, fórmula
+  determinística), ocupando toda a viewport.
+- Marca do hospital (logo + nome institucional, RF-11, branding dinâmico) pequena,
+  no topo, **fora** do cartão, sobre o fundo escuro — texto em cor clara fixa do
+  sistema (não a regra de contraste dinâmico da Camada 1, ver Seção 3.3, já que o
+  fundo é garantido escuro por construção).
+- Cartão de Autenticação (novo, Seção 3.1) centralizado: mensagem de boas-vindas
+  curta, dois CTAs primários — "Entrar" e "Criar conta" — dentro do cartão.
+- Footer institucional (Termos de Uso, Política de Privacidade, Ajuda): reposicionado
+  para abaixo do cartão, ainda sobre o fundo escuro — sem alteração de conteúdo.
 
 ### TL-02 — Criar Conta – Dados Pessoais
 - Formulário de coluna única (RNF-16, usabilidade): nome completo, CPF (com
@@ -461,6 +529,10 @@ declarado, RN-13 — sem SLA formal nesta release)
   TL-17 pré-preenchido, se tecnicamente viável).
 
 ### TL-21 — Meus Exames (lista + filtros)
+- **Atualizado nesta revisão (2026-09-04)**: bloco de Cartões de Indicador (KPI
+  card, novo, Seção 3.1) no topo do conteúdo, antes da barra de filtros —
+  "Disponíveis", "Em processamento", "Links compartilhados ativos" (contagens
+  reais, nunca placeholder estático).
 - Barra de filtros no topo (categoria: laboratorial | anatomopatológico | imagem;
   período), sempre visível mesmo com lista vazia ou filtrada sem resultado —
   paciente nunca perde o filtro aplicado ao ver "nenhum resultado" (RF-05).
@@ -585,14 +657,54 @@ declarado, RN-13 — sem SLA formal nesta release)
 
 ### 3.1 Componentes estruturais (globais)
 
-| Componente | Novo? | Descrição | Usado em |
+> **Revisão de 2026-09-04 ("Painel de Saúde")**: `Header institucional` (topo, cor
+> de marca) e `Navegação Principal` horizontal **deixam de existir como
+> componentes estruturais únicos de toda tela**. São substituídos por dois pares
+> casca/componente, conforme o grupo da tela (mapeamento completo em 3.1.1):
+> **Barra de Navegação Lateral** (telas autenticadas de paciente/administrador) e
+> **Cartão de Autenticação sobre fundo em degradê** (telas pré-autenticação).
+> Componentes marcados abaixo como **Substituído** permanecem documentados (não
+> apagados da história do documento) exatamente para que o Tech Lead veja o que
+> mudou e reestime o que já foi estimado/implementado em cima deles (Lote 1,
+> parte do Lote 4) — não é silêncio sobre a mudança.
+
+| Componente | Status | Descrição | Usado em |
 |---|---|---|---|
-| Header institucional | **Novo** | Logo + nome do hospital (fonte: `BRANDING_CONFIG`, SDD.md §5), aplicado dinamicamente por tenant — nunca hardcoded no componente. Altura fixa, contraste do texto sobre o header garantido independente da cor de marca (ver 3.3, regra de contraste). | Todas as telas |
-| Navegação Principal (paciente) | **Novo** | Meus Exames \| Meu Histórico \| Ajuda \| Sair | TL-21 a TL-29, TL-34, TL-35 |
-| Navegação Principal (administrador) | **Novo** | Gestão de Usuários \| Auditoria \| Ajuda \| Sair | TL-31 a TL-35 |
-| Footer institucional | **Novo** | Links: Termos de Uso, Política de Privacidade, Ajuda | Todas as telas |
-| Modal de confirmação de ação sensível | **Novo** | Padrão reutilizado em: revogar link (TL-27), desbloquear/desativar conta (TL-32) | TL-27, TL-32 |
-| Banner de mensagem inline (erro/sucesso/informação) | **Novo** | Área reservada de layout (não desloca conteúdo ao aparecer) | TL-08, TL-17, TL-19, TL-21 (filtro sem resultado) |
+| Header institucional (topo, cor de marca) | **Substituído nesta revisão** (ver Barra de Navegação Lateral e Cartão de Autenticação, abaixo) | Logo + nome do hospital no topo da página, fundo na cor de marca. Existia como componente estrutural único de toda tela. | Era usado em: todas as telas (versão anterior a 2026-09-04) |
+| Navegação Principal horizontal (paciente/administrador) | **Substituído nesta revisão** (ver Barra de Navegação Lateral, abaixo) | Itens de navegação dispostos horizontalmente, abaixo/dentro do Header. | Era usado em: TL-21 a TL-29, TL-34, TL-35 (paciente); TL-31 a TL-35 (administrador) |
+| **Barra de Navegação Lateral** | **Novo** (substitui Header + Navegação Principal para telas autenticadas) | Barra fixa, escura (`--color-sidebar-bg`), largura de referência 240px. Do topo para a base: (1) marca do hospital (logo + nome, `BRANDING_CONFIG`, RF-11) — cor de texto fixa clara do sistema, não a regra de contraste dinâmico da Camada 1 (fundo já garantido escuro por token fixo, não por marca); (2) itens de navegação do perfil — paciente: Meus Exames \| Meu Histórico \| Ajuda; administrador: Gestão de Usuários \| Auditoria \| Ajuda (mesmos itens de antes, só a forma de apresentação muda); item ativo com fundo `--color-sidebar-active` **mais** indicador de borda lateral (ver Seção 5, achado de contraste) e peso de fonte 700, nunca só a cor de fundo; (3) "Sair" fixo na base, sempre visível, nunca dentro de um menu colapsado adicional. Em mobile (< 600px), colapsa para gaveta lateral (drawer) acionada por botão — nunca desaparece (Seção 6.1.1). | Todas as telas autenticadas de paciente (TL-21 a TL-29) e administrador (TL-31 a TL-33); TL-34/TL-35 quando acessadas em sessão autenticada (Seção 3.1.1) |
+| **Cartão de Autenticação** | **Novo** (substitui Header para telas pré-autenticação) | Fundo de página: degradê escuro derivado deterministicamente de `--color-brand-primary` (fórmula em 3.3) ocupando toda a viewport. Marca do hospital (logo + nome) pequena, no topo, fora do cartão, sobre o fundo escuro, em cor de texto fixa clara do sistema. Cartão claro centralizado (`--radius-lg`, sombra pronunciada — ver token de elevação em 3.3) contendo o conteúdo real da tela (formulário ou bloco de boas-vindas da Landing). Footer institucional abaixo do cartão, sobre o fundo escuro. | Telas pré-autenticação: TL-01 a TL-20, TL-30 (reaproveita TL-08); TL-34/TL-35 quando acessadas sem sessão autenticada (Seção 3.1.1) |
+| **Menu de Navegação Mobile (gaveta/drawer)** | **Novo** | Versão colapsada da Barra de Navegação Lateral para telas < 600px: barra superior fina com botão de menu (hambúrguer, alvo de toque ≥ 44px) + marca do hospital pequena; ao acionar, abre gaveta em tela cheia com o mesmo conteúdo da barra lateral (marca, itens de navegação, Sair). Ver Seção 5 (foco/teclado) e Seção 6.1.1 (comportamento responsivo completo). | Mesmas telas da Barra de Navegação Lateral, em viewport < 600px |
+| **Cartão de Indicador (KPI card)** | **Novo** — padrão formal do design system (decisão do UX/UI: formalizado como componente reutilizável, não deixado como decisão ad hoc por tela, para não violar `design-system-consistency-check`) | Pequeno cartão com rótulo + valor numérico (ex.: "Disponíveis: 12", "Em processamento: 2", "Links compartilhados ativos: 3"), em linha no topo do conteúdo, antes do bloco principal. Empilha em coluna única em mobile (Seção 6). Uso restrito a telas de lista com contagens relevantes ao paciente/administrador — não é decoração; todo uso deve refletir dado real, nunca um placeholder estático. | TL-21 (Meus Exames — Disponíveis, Em processamento, Links compartilhados ativos); disponível como padrão para uso futuro em outras telas de lista, a critério do Frontend dentro deste mesmo formato visual (não uma variação livre) |
+| Footer institucional | Mantido, reposicionado | Links: Termos de Uso, Política de Privacidade, Ajuda. Antes: rodapé de página inteira em toda tela. Agora: abaixo do cartão de autenticação (telas pré-autenticação, sobre o fundo escuro) ou abaixo do conteúdo dentro da área de canvas (telas autenticadas) — sem mudança de conteúdo/links. | Todas as telas |
+| Modal de confirmação de ação sensível | Mantido, tokens visuais atualizados (raio, cor) | Padrão reutilizado em: revogar link (TL-27), desbloquear/desativar conta (TL-32) | TL-27, TL-32 |
+| Banner de mensagem inline (erro/sucesso/informação) | Mantido, tokens visuais atualizados (cor, tint de fundo — Seção 3.3) | Área reservada de layout (não desloca conteúdo ao aparecer) | TL-08, TL-17, TL-19, TL-21 (filtro sem resultado) |
+
+### 3.1.1 Tabela de aplicação de casca estrutural por tela (nova nesta revisão)
+
+> Resolve a ambiguidade do pedido do stakeholder sobre exatamente quais telas
+> pertencem a cada paradigma — decisão do UX/UI, documentada explicitamente para
+> não ficar implícita. Critério aplicado: "pré-autenticação" cobre toda tela
+> alcançável **antes** de existir uma sessão autenticada (paciente ou
+> administrador), incluindo o fluxo completo de Cadastro (TL-01 a TL-07) — a
+> Landing (TL-01) já pertence ao fluxo 4.1 do PRD-TECNICO (Seção 1, Índice de
+> Telas), então incluí-la na nova casca sem incluir o restante do mesmo fluxo
+> quebraria a continuidade visual do próprio fluxo de cadastro.
+
+| Grupo | Telas | Casca aplicada |
+|---|---|---|
+| Cadastro de Paciente | TL-01 a TL-07 | Cartão de Autenticação sobre fundo em degradê |
+| Login com MFA | TL-08 a TL-14, TL-16 (sessão expirada — equivalente a um novo login) | Cartão de Autenticação sobre fundo em degradê |
+| Recuperação de Senha | TL-17 a TL-20 | Cartão de Autenticação sobre fundo em degradê |
+| Login Administrativo | TL-30 (reaproveita TL-08 integralmente) | Cartão de Autenticação sobre fundo em degradê |
+| Aviso de Expiração de Sessão | TL-15 | Modal sobreposto **dentro** da casca autenticada (Barra de Navegação Lateral permanece visível ao fundo, esmaecida) — não é uma tela de casca própria |
+| Consulta e Download de Exame | TL-21 a TL-24 | Barra de Navegação Lateral + canvas |
+| Compartilhamento por Link (paciente) | TL-25, TL-26, TL-27 | Barra de Navegação Lateral + canvas (TL-25/TL-26 como modal sobre essa casca) |
+| Visualização do Destinatário (link) | TL-28, TL-29 | **Fora de escopo desta revisão, deliberadamente** — mantido o tratamento atual ("cabeçalho simplificado", Seção 2), sem barra lateral nem cartão de autenticação: o destinatário não é usuário autenticado do portal nem está em um fluxo de acesso/onboarding de conta (RN-07 já isola essa tela de qualquer navegação do portal). Decisão do UX/UI, sinalizada aqui explicitamente para o stakeholder/Tech Lead confirmarem se concordam, não uma omissão |
+| Gestão de Usuários (Administrador) | TL-31, TL-32, TL-33 | Barra de Navegação Lateral + canvas |
+| Ajuda e Suporte | TL-34, TL-35 | **Condicional ao estado de sessão no momento do acesso**: se autenticado, Barra de Navegação Lateral + canvas (mesma casca da sessão em curso); se não autenticado (acesso a partir da Landing/rodapé), Cartão de Autenticação sobre fundo em degradê. Conteúdo (FAQ, contato) inalterado em ambos os casos — só a casca muda |
+
+---
 
 ### 3.2 Componentes de formulário
 
@@ -606,16 +718,21 @@ declarado, RN-13 — sem SLA formal nesta release)
 
 ### 3.3 Tokens visuais
 
-Divididos em duas camadas — separação deliberada para resolver a tensão entre
-identidade de marca do hospital (RF-11, ADR-004) e acessibilidade WCAG 2.1 AA
-(RNF-06, inegociável), sem esperar decisão do Software Architect para poder
-avançar o design (ver Seção 7 para o detalhe do porquê essa separação existe):
+> **Revisão de 2026-09-04**: a Camada 2 (tokens de sistema, fixos) é
+> **substituída** pelos valores abaixo, a pedido do stakeholder ("Painel de
+> Saúde"). Todos os pares texto/fundo relevantes foram **recalculados e
+> confirmados** nesta revisão pela fórmula de luminância relativa do WCAG 2.1
+> (não copiados como já validados) — razões de contraste exatas na tabela 3.3.2.
+> A Camada 1 (marca dinâmica por tenant) **não muda de regra** — a única adição é
+> a fórmula determinística de derivação do fundo em degradê escuro para telas
+> pré-autenticação (3.3.3), que consome `--color-brand-primary` como entrada sem
+> alterar a regra de contraste dinâmico já existente para texto sobre a marca.
 
-**Camada 1 — Tokens de marca (dinâmicos por tenant, `BRANDING_CONFIG`)**
+**Camada 1 — Tokens de marca (dinâmicos por tenant, `BRANDING_CONFIG`) — inalterada**
 | Token | Uso permitido | Uso proibido |
 |---|---|---|
-| `--color-brand-primary` | Cor de fundo do header, cor de destaque em elementos não-textuais grandes (ex.: botão primário — com verificação de contraste de texto sobre ele, ver regra abaixo), logo | Nunca usado como cor de texto de corpo sobre fundo claro/escuro sem checagem de contraste — nunca usado sozinho para transmitir estado (erro/sucesso), que usa Camada 2 |
-| `--brand-logo-url` | Header, tela de destinatário de link (TL-28) | — |
+| `--color-brand-primary` | Cor de destaque em elementos não-textuais grandes (ex.: botão primário — com verificação de contraste de texto sobre ele, ver regra abaixo), logo, **entrada da fórmula de derivação do fundo em degradê pré-autenticação (3.3.3)** | Nunca usado como cor de texto de corpo sobre fundo claro/escuro sem checagem de contraste — nunca usado sozinho para transmitir estado (erro/sucesso), que usa Camada 2. Nesta revisão, deixa de ser cor de fundo do Header (componente substituído, 3.1) |
+| `--brand-logo-url` | Marca no topo da Barra de Navegação Lateral e no topo do fundo em degradê (Cartão de Autenticação), tela de destinatário de link (TL-28) | — |
 
 **Regra de contraste obrigatória sobre `--color-brand-primary`**: todo texto
 renderizado sobre a cor de marca (ex.: texto do botão primário) deve ser calculado
@@ -624,21 +741,131 @@ automaticamente o que atinge relação de contraste ≥ 4.5:1 (WCAG 2.1 AA, text
 normal) contra a cor de marca configurada — nunca um valor de cor de texto
 hardcoded assumindo que a marca será sempre clara ou sempre escura. Esta é uma
 regra de componente, aplicável a qualquer paleta de hospital que entrar depois do
-piloto, não um ajuste manual por tenant.
+piloto, não um ajuste manual por tenant. **Inalterada nesta revisão.**
 
-**Camada 2 — Tokens de sistema (fixos, independentes de tenant, já verificados
-WCAG 2.1 AA)**
-| Token | Valor de referência | Uso |
+#### 3.3.1 Camada 2 — Tokens de sistema (fixos, independentes de tenant) — valores vigentes desta revisão
+
+| Token | Valor | Uso | Observação desta revisão |
+|---|---|---|---|
+| `--color-ink` (texto primário) | `#17201B` | Corpo de texto padrão sobre fundo claro (canvas ou cartão) | Antes `#1A2733`. Contraste recalculado — ver 3.3.2 |
+| `--color-ink-soft` (texto secundário/esmaecido) | `#647065` | Legendas, metadados secundários (datas, rótulos auxiliares), texto de apoio | **Token novo** — não existia antes. Contraste recalculado — ver 3.3.2, com restrição de uso documentada |
+| `--color-line` (borda neutra) | `#E3E7E1` | Divisores decorativos/estruturais de baixa ênfase (linhas entre itens de lista, regras internas de cartão) | **Token novo**. **Não usar como única indicação de borda de componente interativo** (input, select) — ver 3.3.2, achado de contraste insuficiente para esse uso |
+| `--color-canvas` (fundo da área de conteúdo autenticada) | `#F3F5F2` | Fundo da área de conteúdo ao lado da Barra de Navegação Lateral | Antes branco puro. Cartões de conteúdo continuam brancos sobre este fundo |
+| `--color-card-bg` (fundo de cartão) | `#FFFFFF` | Cartões de conteúdo, Cartão de Autenticação | Mantido |
+| `--color-sidebar-bg` (fundo da navegação lateral) | `#10261A` | Fundo da Barra de Navegação Lateral | **Token novo**. Contraste de texto claro sobre este fundo confirmado — ver 3.3.2 |
+| `--color-sidebar-active` (item ativo da navegação lateral) | `#1B3B27` | Fundo do item ativo dentro da Barra de Navegação Lateral | **Token novo**. Ver 3.3.2 para o achado de contraste entre este tom e `--color-sidebar-bg` e o tratamento definido (Seção 5) |
+| `--color-success` | `#1E7A34` | Confirmações (TL-07, TL-26) — nunca só cor, sempre com ícone/texto (Seção 5) | Valor exato definido nesta revisão (documento anterior deixava "verde acessível" sem hex fechado); escolhido deliberadamente distinto dos tons de verde da navegação lateral, para não confundir "marca/navegação" com "estado de sucesso". Contraste confirmado — ver 3.3.2 |
+| `--color-error` | `#B3261E` | Erros (TL-09, TL-19 inválido) | Mantido. Contraste reconfirmado — ver 3.3.2 |
+| `--color-error-tint` | `#FBE2E0` | Fundo suave de banner/alerta de erro, atrás do texto/ícone em `--color-error` | **Token novo** |
+| `--color-warning` | `#8A5A00` | Avisos (TL-15, expiração de sessão) | Mantido. Contraste reconfirmado — ver 3.3.2 |
+| `--color-warning-tint` | `#FCEFD9` | Fundo suave de banner/alerta de aviso | **Token novo** |
+| `--color-info` | `#1D5DB3` | Mensagens informativas (TL-18, TL-04) | Mantido. Contraste reconfirmado — ver 3.3.2 |
+| `--color-info-tint` | `#DDEAF8` | Fundo suave de banner/mensagem informativa | **Token novo** |
+| `--font-family-base` | `"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`, pesos 500/700/800 | Títulos e corpo de texto | Fonte trocada nesta revisão — ver 3.3.4 para a justificativa (legibilidade, RNF-06) |
+| `--spacing-*` | Escala de 4/8/16/24/32px | Espaçamento consistente entre blocos | Mantido, sem mudança |
+| `--radius-sm` (input, botão pequeno) | `12px` | Campos de formulário, botões de ação padrão | Antes 4px — escala mais arredondada, ver 3.3.5 |
+| `--radius-md` (cartão) | `20px` | Cartões de conteúdo (área de canvas), Cartão de Indicador | Antes 8px |
+| `--radius-lg` (modal / cartão grande) | `28px` | Cartão de Autenticação, modais de confirmação, modal de expiração de sessão | Novo nível — não existia distinção própria antes |
+
+#### 3.3.2 Verificação de contraste WCAG 2.1 AA — pares recalculados nesta revisão
+
+> Fórmula aplicada: luminância relativa `L = 0.2126·R + 0.7152·G + 0.0722·B` sobre
+> componentes linearizados de sRGB, contraste `(L1+0.05)/(L2+0.05)` com `L1 ≥ L2`.
+> Critério: ≥ 4.5:1 para texto normal / componentes de texto (1.4.3), ≥ 3:1 para
+> elementos gráficos/estado de componente de UI (1.4.11). Calculado ponto a ponto
+> abaixo, não presumido.
+
+| Par (texto/fundo ou elemento/fundo) | Razão calculada | Resultado |
 |---|---|---|
-| `--color-text-primary` | Neutro escuro (contraste ≥ 4.5:1 sobre `--color-bg-default`) | Corpo de texto padrão |
-| `--color-bg-default` | Neutro claro | Fundo padrão de página |
-| `--color-success` | Verde acessível (não depende só de cor — sempre acompanhado de ícone/texto, ver Seção 5) | Confirmações (TL-07, TL-26) |
-| `--color-error` | Vermelho acessível (idem, nunca só cor) | Erros (TL-09, TL-19 inválido) |
-| `--color-warning` | Âmbar acessível (idem) | Avisos (TL-15, expiração de sessão) |
-| `--color-info` | Azul neutro do sistema | Mensagens informativas (TL-18, TL-04) |
-| `--font-family-base` | Fonte de sistema/web font com bom suporte a leitura prolongada | Todo texto |
-| `--spacing-*` | Escala de 4/8/16/24/32px | Espaçamento consistente entre blocos |
-| `--radius-*` | Escala de 4/8px | Cantos de botões/cards/modais |
+| `--color-ink` (#17201B) sobre `--color-card-bg` (#FFFFFF) | 16.68:1 | Passa (muito acima de 4.5:1) |
+| `--color-ink` (#17201B) sobre `--color-canvas` (#F3F5F2) | 15.21:1 | Passa |
+| `--color-ink-soft` (#647065) sobre `--color-card-bg` (#FFFFFF) | 5.19:1 | Passa 4.5:1 (texto normal), sem margem para AAA (7:1) |
+| `--color-ink-soft` (#647065) sobre `--color-canvas` (#F3F5F2) | 4.73:1 | Passa 4.5:1, **margem estreita** — restrição de uso definida: preferir `--color-ink-soft` sobre `--color-card-bg` (cartões); quando usado diretamente sobre `--color-canvas`, reservar para texto grande (≥ 18pt/14pt bold) sempre que o conteúdo permitir, dado o público idoso do RNF-06 |
+| `--color-line` (#E3E7E1) como borda, contra `--color-card-bg` (#FFFFFF) | 1.25:1 | **Não atinge 3:1** (1.4.11) — `--color-line` **não deve ser usado sozinho** como indicação de borda de componente interativo (input, select, checkbox); uso restrito a divisores decorativos onde a identificação do componente não depende da borda (reforçado por espaçamento/sombra). Bordas de campo de formulário no estado padrão usam `--color-ink-soft` (5.19:1 sobre branco, acima de 3:1) |
+| `--color-card-bg` (#FFFFFF) contra `--color-canvas` (#F3F5F2), como delimitação de cartão | 1.10:1 | **Não atinge 3:1** por cor isolada — por isso a especificação exige sombra pronunciada (elevação) como pista não dependente de cor para todo cartão sobre o canvas (critério 1.4.11 satisfeito por deixar de depender só de contraste cromático) |
+| Texto claro fixo do sistema sobre `--color-sidebar-bg` (#10261A) | 15.97:1 (calculado com branco `#FFFFFF`) | Passa, larga margem |
+| Texto claro fixo do sistema sobre `--color-sidebar-active` (#1B3B27) | 12.34:1 | Passa, larga margem |
+| `--color-sidebar-active` (#1B3B27) contra `--color-sidebar-bg` (#10261A), como único indicador do item ativo | 1.29:1 | **Não atinge 3:1** (1.4.11) — mudança de fundo sozinha é insuficiente para comunicar o estado ativo. Tratamento definido (Seção 5): item ativo soma (a) mudança de fundo, (b) borda/indicador lateral em cor clara de alto contraste, (c) peso de fonte 700, (d) `aria-current="page"` — nunca apenas a mudança de cor de fundo |
+| `--color-success` (#1E7A34) sobre `--color-card-bg` (#FFFFFF) | 5.40:1 | Passa |
+| `--color-success` (#1E7A34) sobre `--color-canvas` (#F3F5F2) | 4.93:1 | Passa |
+| `--color-error` (#B3261E) sobre `--color-card-bg` (#FFFFFF) | 6.54:1 | Passa (reconfirmado, valor mantido) |
+| `--color-error` (#B3261E) sobre `--color-error-tint` (#FBE2E0) | 5.31:1 | Passa |
+| `--color-warning` (#8A5A00) sobre `--color-card-bg` (#FFFFFF) | 5.93:1 | Passa (reconfirmado, valor mantido) |
+| `--color-warning` (#8A5A00) sobre `--color-warning-tint` (#FCEFD9) | 5.22:1 | Passa |
+| `--color-info` (#1D5DB3) sobre `--color-card-bg` (#FFFFFF) | 6.42:1 | Passa (reconfirmado, valor mantido) |
+| `--color-info` (#1D5DB3) sobre `--color-info-tint` (#DDEAF8) | 5.26:1 | Passa |
+
+**Achados que exigiram tratamento adicional (documentados, não escondidos)**:
+1. `--color-line` sozinho não serve como borda de componente interativo — regra de
+   uso definida acima.
+2. `--color-card-bg` sobre `--color-canvas` não se distingue por cor — sombra
+   pronunciada é obrigatória em todo cartão, não apenas estética.
+3. `--color-sidebar-active` sobre `--color-sidebar-bg` não se distingue apenas por
+   cor — item ativo da navegação lateral usa reforço multi-sinal (Seção 5).
+4. `--color-ink-soft` sobre `--color-canvas` tem margem estreita (4.73:1, mínimo
+   exigido 4.5:1) — restrição de uso preferencial documentada.
+Nenhum desses achados é um conflito com o `SDD.md` (não há restrição técnica
+envolvida) — são decisões de token/uso resolvidas dentro da autoridade normal do
+UX/UI, registradas para rastreabilidade e para a Seção 5 (Acessibilidade).
+
+#### 3.3.3 Derivação determinística do fundo em degradê (telas pré-autenticação)
+
+A cor de marca dinâmica (`--color-brand-primary`) segue sendo a única entrada de
+marca — não há uma segunda cor arbitrária configurada por hospital. O fundo em
+degradê escuro das telas pré-autenticação é **calculado**, não escolhido à mão,
+pela seguinte regra determinística (mesmo espírito da regra de contraste dinâmico
+já existente para texto sobre a marca):
+
+1. Converter `--color-brand-primary` de sRGB para HSL, obtendo matiz (H), saturação
+   (S) e luminosidade (L) originais.
+2. Aplicar um piso mínimo de saturação: `S' = max(S, 40%)` — evita um degradê
+   acinzentado/sem identidade quando a marca do hospital for muito dessaturada.
+3. Gerar dois pontos de parada, mesmo matiz H, luminosidade reduzida:
+   - Parada 1 (canto superior): `HSL(H, S', 14%)`
+   - Parada 2 (canto inferior): `HSL(H, S', 6%)`
+4. Aplicar como `linear-gradient(135deg, Parada 1, Parada 2)` cobrindo toda a
+   viewport.
+
+Como a luminosidade fica limitada entre 6% e 14% por construção, o fundo é sempre
+escuro o suficiente para que texto claro fixo do sistema (branco/quase-branco)
+atinja contraste ≥ 4.5:1 independentemente da cor de marca configurada — por isso
+a marca do hospital (logo + nome) sobre este fundo usa **cor de texto fixa clara
+do sistema**, não a regra de contraste dinâmico da Camada 1 (que existe para
+quando o próprio `--color-brand-primary` é o fundo, não uma versão escurecida
+dele). Regra de componente, válida para qualquer hospital que entrar depois do
+piloto — não um ajuste manual por tenant, mesmo racional já aplicado à regra de
+contraste sobre `--color-brand-primary`.
+
+#### 3.3.4 Tipografia — troca de fonte
+
+Fonte escolhida: **Lexend** (Google Fonts), pesos 500 (texto de apoio/corpo com
+ênfase), 700 (subtítulos, item de navegação ativo) e 800 (títulos/display). Pilha
+de fallback: `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial,
+sans-serif`.
+
+**Justificativa (RNF-06 é inegociável, público inclui pacientes idosos)**: Lexend
+foi desenvolvida especificamente a partir de pesquisa de legibilidade/desempenho de
+leitura (variável de eixo ajustada para reduzir tempo de leitura e erros de
+reconhecimento de caractere), com x-height generoso e formas de letra bem
+diferenciadas entre caracteres frequentemente confundidos (ex.: "I"/"l"/"1") — vai
+na mesma direção do requisito já existente de legibilidade para público idoso, não
+o contradiz. Carregamento via Google Fonts (`fonts.googleapis.com`/
+`fonts.gstatic.com`) exige entrada correspondente em `style-src`/`font-src` do
+cabeçalho CSP já previsto no `SDD.md` (§8, "cabeçalhos de segurança") — ver Seção
+7.4 (checagem técnica, sem conflito, apenas item a configurar).
+
+#### 3.3.5 Escala de raio de borda — nova escala
+
+| Categoria | Valor | Uso |
+|---|---|---|
+| `--radius-sm` | 12px | Inputs, botões pequenos/padrão |
+| `--radius-md` | 20px | Cartões de conteúdo, Cartão de Indicador |
+| `--radius-lg` | 28px | Cartão de Autenticação, modais, cartões grandes de destaque |
+
+Escala substituída (antes: 4px/8px, dois níveis) por três níveis mais arredondados,
+consistentes com a direção visual "Painel de Saúde". **Alvo de toque mínimo de
+44px não é afetado por esta mudança** — raio de borda é estético/de forma, não
+altera a área de toque do elemento (Seção 5.1, regra inalterada).
 
 ### 3.4 Tabela de rastreabilidade — telas × componentes novos
 
@@ -651,10 +878,16 @@ genéricos em cada entrada de tela da Seção 2.
 |---|---|
 | TL-12 | Exibição de QR code + código alfanumérico alternativo |
 | TL-15 | Modal de contagem regressiva com `role="alertdialog"` |
-| TL-21 | Barra de filtros persistente + lista/tabela de exames com status |
+| TL-21 | Barra de filtros persistente + lista/tabela de exames com status + **Cartão de Indicador (KPI card, novo nesta revisão, Seção 3.1)** — Disponíveis / Em processamento / Links compartilhados ativos |
 | TL-22/TL-23 | Visualizador de documento embutido (PDF/HTML) e imagem estática (`<img>`), com botões de ação condicionalmente ocultos |
 | TL-26/TL-27 | Componente de exibição/cópia de URL + status de link (ativo/expirado/revogado) |
 | TL-31/TL-33 | Tabela com busca/filtro administrativo, CPF mascarado com opção de revelar |
+
+**Nesta revisão (2026-09-04)**, adicionalmente, toda tela autenticada (TL-21 a
+TL-29, TL-31 a TL-33) ganha a Barra de Navegação Lateral (Seção 3.1) no lugar do
+par Header + Navegação Principal; toda tela pré-autenticação (TL-01 a TL-20,
+TL-30) ganha o Cartão de Autenticação sobre fundo em degradê (Seção 3.1). Ver
+Seção 3.1.1 para o mapeamento completo — não repetido aqui tela a tela.
 
 ---
 
@@ -697,6 +930,14 @@ genéricos em cada entrada de tela da Seção 2.
 > pacientes idosos/com deficiência — tratado aqui como critério de aceite por tela,
 > não como revisão posterior. Regras transversais primeiro, depois pontos
 > específicos por tela onde há risco elevado de violação.
+>
+> **Revisão de 2026-09-04**: toda regra desta seção foi revalidada contra a nova
+> casca estrutural (Barra de Navegação Lateral, Cartão de Autenticação, Menu de
+> Navegação Mobile) e os novos tokens de cor (Seção 3.3). Nenhuma regra
+> transversal foi enfraquecida — o alvo de toque mínimo de 44px permanece sem
+> exceção. Três subseções novas foram adicionadas (5.1.1 navegação por teclado da
+> barra lateral, 5.1.2 skip link, 5.1.3 menu mobile) e um achado de contraste do
+> item ativo da navegação (Seção 3.3.2) recebeu tratamento explícito abaixo.
 
 ### 5.1 Regras transversais (aplicam-se a todas as 35 telas)
 
@@ -730,6 +971,50 @@ genéricos em cada entrada de tela da Seção 2.
   controle proprietário (ver Seção 7), reforçando que o zoom nativo do navegador
   precisa funcionar sem quebra de layout ao redor da imagem/documento.
 
+#### 5.1.1 Navegação por teclado — Barra de Navegação Lateral (nova nesta revisão)
+
+- Ordem de tabulação lógica: skip link (5.1.2) → marca/logo do topo (se for link,
+  ex. volta para a tela inicial da área logada) → itens de navegação, em ordem
+  visual (topo→base) → "Sair" → conteúdo principal.
+- Item ativo marcado com `aria-current="page"`, além do reforço visual
+  multi-sinal definido a seguir (não apenas cor) — decorre diretamente do achado
+  de contraste da Seção 3.3.2 (fundo do item ativo vs. fundo da barra, 1.29:1,
+  insuficiente por si só para o critério 1.4.11): o item ativo soma (a) fundo
+  `--color-sidebar-active`, (b) borda/indicador lateral de alto contraste (cor
+  clara sólida, não depende de `--color-brand-primary` para não reintroduzir risco
+  de contraste variável), (c) peso de fonte 700, (d) `aria-current="page"` — nunca
+  apenas a mudança de fundo.
+- Indicador de foco visível sobre fundo escuro: anel de foco em cor clara
+  (contraste ≥ 3:1 confirmado contra `--color-sidebar-bg`/`--color-sidebar-active`
+  — larga margem, Seção 3.3.2), nunca `outline: none` sem substituto.
+- "Sair" é sempre um item de navegação alcançável por teclado como qualquer outro,
+  nunca escondido atrás de um menu adicional (mesma regra do Menu de Navegação
+  Mobile, 5.1.3).
+
+#### 5.1.2 Skip link (reforçado nesta revisão)
+
+Com a Barra de Navegação Lateral presente em toda tela autenticada (antes do
+conteúdo principal na ordem de leitura/tabulação), o link "Pular para o conteúdo
+principal" — primeiro elemento focável da árvore, visível ao receber foco — passa
+de boa prática recomendada a requisito verificado explicitamente nesta revisão:
+sem ele, todo paciente/administrador que navega por teclado precisaria tabular por
+toda a barra lateral a cada troca de tela para alcançar o conteúdo, o que não
+acontecia da mesma forma com a Navegação Principal horizontal anterior (mais curta
+antes do conteúdo).
+
+#### 5.1.3 Menu de Navegação Mobile (gaveta/drawer) — acessibilidade (novo)
+
+- Botão de acionamento (hambúrguer): alvo de toque ≥ 44px (regra inalterada),
+  `aria-expanded` refletindo estado aberto/fechado, `aria-controls` apontando para
+  a gaveta, rótulo acessível "Abrir menu de navegação"/"Fechar menu de navegação".
+- Gaveta: `role="navigation"` com `aria-label`, foco movido para o primeiro item
+  ao abrir, **foco preso dentro da gaveta** enquanto aberta (critério 2.4.3), tecla
+  `Esc` fecha e devolve o foco ao botão de acionamento, clique fora da gaveta
+  também fecha.
+- Mesmo conteúdo e ordem da Barra de Navegação Lateral (marca, itens de navegação,
+  "Sair") — a mudança é de forma (gaveta em vez de barra fixa), nunca de conteúdo
+  ou de alcançabilidade, conforme já estabelecido na Seção 6.
+
 ### 5.2 Pontos específicos de maior risco por tela
 
 | Tela | Ponto de atenção WCAG | Tratamento definido |
@@ -743,6 +1028,8 @@ genéricos em cada entrada de tela da Seção 2.
 | TL-23 (Imagem JPEG/PNG) | Imagem médica sem texto alternativo descritivo é uma barreira de acessibilidade grave, mesmo sendo uma imagem clínica sem "descrição" textual óbvia | `alt` text padronizado com metadados do exame (tipo, data, categoria) — nunca `alt=""` ou vazio; texto de apoio visível (Seção 2, TL-23) também funciona como contexto textual complementar à imagem, não é decorativo |
 | TL-25/TL-26 (Compartilhamento) | Data/hora de expiração comunicada só em formato relativo ("expira em 3 dias") pode ser ambígua para leitor de tela/usuário com deficiência cognitiva | Sempre exibir também o formato absoluto (data e hora completas), nunca só o relativo, reforçado na Seção 2 |
 | TL-31/TL-32 (Painel admin) | Tabela densa de dados (lista de pacientes) é área comum de falha de acessibilidade se não usar semântica de tabela correta | `<table>` semântica com `<th scope="col">`, não `<div>` estilizada como tabela; ação de "revelar CPF" anunciada como toggle de estado (`aria-pressed`), não só troca visual |
+| TL-01 a TL-20, TL-30 (Cartão de Autenticação sobre fundo em degradê, novo nesta revisão) | Marca do hospital (logo + nome) pequena sobre fundo escuro fora do cartão — risco de baixo contraste se implementada com a regra de contraste dinâmico da Camada 1 em vez da regra específica desta casca | Texto da marca sobre o fundo em degradê usa cor de texto fixa clara do sistema (não a Camada 1) — contraste garantido por construção pela fórmula de derivação do fundo (Seção 3.3.3, luminosidade sempre entre 6% e 14%), confirmado ≥ 4.5:1 |
+| TL-21 a TL-33 (Barra de Navegação Lateral, novo nesta revisão) | Item ativo indicado só por mudança de cor de fundo (`--color-sidebar-active`) não atinge 3:1 contra `--color-sidebar-bg` (Seção 3.3.2) | Reforço multi-sinal obrigatório — ver 5.1.1 (borda/indicador lateral, peso de fonte, `aria-current`) |
 
 ---
 
@@ -752,13 +1039,43 @@ RNF-07 confirma: web responsiva (desktop + mobile via navegador), sem aplicativo
 nativo (Won't, fora do escopo). Aplicável a **todas** as 35 telas — nenhuma exceção
 "não aplicável" neste projeto, dado que o produto não é API-only.
 
+> **Revisão de 2026-09-04**: o comportamento da Barra de Navegação Lateral em
+> mobile, deixado como decisão aberta do Frontend na versão anterior deste
+> documento ("hambúrguer ou barra inferior"), é **fechado nesta revisão** — ver
+> 6.1.1. Continua valendo a regra já existente de que áreas de navegação nunca
+> desaparecem, apenas mudam de forma.
+
 ### 6.1 Breakpoints (proposta do UX/UI — a validar tecnicamente com Tech Lead/Frontend na fase de implementação, RNF-14 também deixa compatibilidade de navegador como "a confirmar")
 
 | Breakpoint | Largura | Uso |
 |---|---|---|
-| Mobile | até 599px | Layout de coluna única em todas as telas, navegação principal colapsada em menu (hambúrguer ou barra inferior — decisão de detalhe do Frontend Developer dentro deste princípio) |
-| Tablet | 600px–1023px | Coluna única ou duas colunas conforme densidade de conteúdo da tela (ex.: TL-31 pode usar mais largura para a tabela) |
-| Desktop | ≥ 1024px | Layout completo, navegação principal sempre visível (não colapsada) |
+| Mobile | até 599px | Layout de coluna única em todas as telas. Barra de Navegação Lateral colapsa para Menu de Navegação Mobile (gaveta/drawer) — decisão fechada nesta revisão, ver 6.1.1. Cartão de Autenticação ocupa praticamente a largura total da viewport (menos padding mínimo), fundo em degradê preenchendo o restante |
+| Tablet | 600px–1023px | Coluna única ou duas colunas conforme densidade de conteúdo da tela (ex.: TL-31 pode usar mais largura para a tabela). Barra de Navegação Lateral fixa, mesma apresentação do desktop |
+| Desktop | ≥ 1024px | Layout completo, Barra de Navegação Lateral sempre visível (não colapsada), largura de referência 240px |
+
+### 6.1.1 Barra de Navegação Lateral em mobile — decisão fechada nesta revisão
+
+Abaixo de 600px, a Barra de Navegação Lateral **não é cortada nem escondida sem
+alternativa** — colapsa para o **Menu de Navegação Mobile (gaveta/drawer)**
+definido na Seção 3.1:
+
+- Uma barra superior fina e fixa substitui a barra lateral fixa: contém o botão de
+  menu (ícone hambúrguer, alvo de toque ≥ 44px) à esquerda e a marca do hospital
+  (logo pequeno) centralizada ou à direita.
+- Ao acionar o botão, uma gaveta em tela cheia desliza sobre o conteúdo,
+  reproduzindo o mesmo conteúdo e ordem da barra lateral de desktop: marca no
+  topo, itens de navegação do perfil, "Sair" na base — nada é omitido nem movido
+  para um submenu adicional.
+- Escolha de gaveta em tela cheia (em vez de barra de abas inferior) motivada por:
+  paridade de conteúdo mais simples com a barra lateral de desktop (mesmos itens,
+  mesma ordem, sem precisar redistribuir "Sair" para um local separado como uma
+  barra de abas de 3-4 posições exigiria) e por já existir um padrão equivalente
+  de "modal em tela cheia" no restante da especificação para mobile (6.2, modais
+  de confirmação), mantendo consistência de padrão de interação em vez de
+  introduzir um terceiro paradigma (barra de abas) só para a navegação.
+- Fechamento: toque fora da gaveta, botão de fechar explícito, ou tecla `Esc`
+  (teclado externo/acessibilidade) — foco devolvido ao botão de menu ao fechar
+  (Seção 5.1.3).
 
 ### 6.2 Regras específicas por grupo de tela
 
@@ -785,6 +1102,17 @@ nativo (Won't, fora do escopo). Aplicável a **todas** as 35 telas — nenhuma e
   necessidade de o paciente ter dois dispositivos, ou usar um segundo navegador/
   aba — nota de usabilidade a validar com o hospital piloto quando P1 for
   resolvida, não um problema desta especificação resolver sozinha).
+- **Cartão de Autenticação (TL-01 a TL-20, TL-30 — novo nesta revisão)**: em
+  mobile, o cartão ocupa a largura total disponível (menos padding mínimo, mesmo
+  princípio do visualizador de documento/imagem acima) em vez de manter uma largura
+  fixa centralizada pequena — o fundo em degradê preenche o espaço restante acima/
+  abaixo do cartão. Raio de borda (`--radius-lg`) e sombra mantidos mesmo em
+  mobile, sem redução — parte da identidade visual da direção "Painel de Saúde",
+  não apenas um detalhe de desktop.
+- **Cartão de Indicador / KPI card (TL-21 — novo nesta revisão)**: em mobile,
+  empilha em coluna única (um indicador por linha) em vez da disposição em linha
+  usada em tablet/desktop — mesmo princípio de não forçar rolagem horizontal já
+  aplicado às listas/tabelas densas acima.
 
 ---
 
@@ -796,7 +1124,7 @@ nativo (Won't, fora do escopo). Aplicável a **todas** as 35 telas — nenhuma e
 | Restrição (SDD.md) | Onde impacta o UX-SPEC | Tratamento |
 |---|---|---|
 | ADR-003 — imagens convertidas para JPEG/PNG no MVP, sem visualizador DICOM nativo (zoom/pan/window-level) | TL-23, TL-28 | Imagem exibida como `<img>` estático, zoom apenas via navegador/SO nativo, texto de apoio explícito gerenciando expectativa (Seção 2). Nenhuma promessa de interação que só existe em RF-S02 (Release 2) |
-| ADR-004 — multi-tenancy lógica, branding por `BRANDING_CONFIG`, sem self-service (RN-10) | Header institucional (3.1), tokens de marca (3.3) | Branding tratado como dado de configuração consumido dinamicamente pelo frontend, nunca hardcoded por hospital; nenhuma tela de "configurar minha marca" desenhada nesta release, conforme RN-10 |
+| ADR-004 — multi-tenancy lógica, branding por `BRANDING_CONFIG`, sem self-service (RN-10) | Marca do hospital na Barra de Navegação Lateral e no Cartão de Autenticação (3.1, componentes que substituem o antigo Header institucional nesta revisão — ver 7.4), tokens de marca (3.3) | Branding tratado como dado de configuração consumido dinamicamente pelo frontend, nunca hardcoded por hospital; nenhuma tela de "configurar minha marca" desenhada nesta release, conforme RN-10 |
 | ADR-007 — sessão server-side revogável via Redis, expiração por inatividade (RF-04) | TL-15, TL-16 | Aviso de expiração com opção de renovar (chamada de "manter sessão viva" é tecnicamente compatível com sessão revogável — só atualiza `ultima_atividade`, não contorna a revogabilidade); logout invalida token imediatamente, refletido como estado imediato, não otimista |
 | ADR-008 — MFA via TOTP + OTP e-mail, sem SMS (RN-03) | TL-11, TL-12, TL-13 | Nenhuma tela desenhada para SMS. TOTP e e-mail apresentados com paridade visual (nenhum forçado como único caminho), mitigando parcialmente a fricção de onboarding que o próprio ADR-008 já reconhece como trade-off aceito |
 | RNF-11/RN-09 — isolamento de dados entre hospitais | TL-31, TL-33 | Toda tela administrativa desenhada já pressupõe escopo de dado limitado ao tenant do administrador logado — nenhuma tela expõe seletor de "trocar de hospital" ou visão cross-tenant |
@@ -895,46 +1223,70 @@ real desse cenário só será conhecido com o hospital piloto real (Premissa P1,
 ainda não resolvida). Registrado aqui para rastreabilidade, não como conflito
 ativo.
 
+### 7.4 Checagem técnica da revisão "Painel de Saúde" (2026-09-04) — sem conflito
+
+`technical-constraint-check` reaplicado sobre a nova direção visual contra o
+`SDD.md`, antes de considerar esta revisão pronta para o Tech Lead:
+
+| Elemento novo/alterado | Restrição técnica verificada | Resultado |
+|---|---|---|
+| Fonte Lexend via Google Fonts (`fonts.googleapis.com`/`fonts.gstatic.com`) | `SDD.md` §8 prevê cabeçalhos de segurança (CSP, HSTS) na SPA, sem detalhar diretivas exatas de `font-src`/`style-src` | **Sem conflito** — nenhuma restrição do `SDD.md` proíbe fonte externa (a versão anterior deste documento já previa "fonte de sistema/web font" como possibilidade em aberto). Item de configuração a incluir no CSP pelo Frontend/DevSecOps na implementação — sinalizado aqui para visibilidade, não é um bloqueio nem uma decisão do UX/UI resolver sozinho o texto exato da diretiva |
+| Fundo em degradê derivado de `--color-brand-primary` (Seção 3.3.3) | ADR-004 (multi-tenancy lógica, branding por `BRANDING_CONFIG`, RN-10 sem self-service) | **Sem conflito** — a derivação consome a mesma e única cor de marca já configurada por tenant, calculada em tempo de execução no frontend (mesmo padrão já usado pela regra de contraste dinâmico existente); nenhum campo novo exigido em `BRANDING_CONFIG` |
+| Gate de contraste de `BRANDING_CONFIG` (ADR-011, `SDD.md` §7.7) | A troca de tokens de sistema (Camada 2) não altera a Camada 1 nem a regra de contraste dinâmico validada pelo gate | **Sem conflito** — o gate valida a paleta do hospital (Camada 1) contra os tokens fixos do sistema; os tokens fixos mudaram de valor, mas a fórmula/gate em si (executado pela equipe interna, `SDD.md` §7.7) não precisa de alteração, só passa a comparar contra os novos valores desta revisão |
+| Barra de Navegação Lateral / gaveta mobile (React SPA) | RNF-07 (web responsiva), stack React + TypeScript (`SDD.md` §3) | **Sem conflito** — padrão de UI implementável com o ecossistema de componentes React já assumido no `SDD.md` (mesma base técnica que já suportaria Header/Navegação horizontal) |
+
+Nenhum item acima exigiu escalonamento a `software-architect` — nenhuma tensão
+real entre experiência desejada e restrição técnica foi encontrada nesta revisão,
+diferente do que ocorreu no Bloqueio 001 original (Seção 7.2). O único item de
+acompanhamento (diretiva exata de CSP para Google Fonts) é uma tarefa de
+configuração de implementação, não uma divergência de arquitetura.
+
 ---
 
 ## Checklist de Critérios de Pronto (UX/UI)
 
+> Reavaliado em 2026-09-04 após a revisão "Painel de Saúde" — checklist binário,
+> não é uma reaprovação de gate (essa escala é exclusiva do CTO).
+
 - [x] Todo fluxo do `PRD-TECNICO.md` (§4.1 a §4.5, §4.7) tem tela(s) correspondente(s)
-      mapeada(s) — TL-01 a TL-35 (Seção 1, Índice de Telas). O fluxo §4.6 (ingestão
-      via integração) é interno/técnico, sem tela, e está registrado explicitamente
-      como tal, não como lacuna.
+      mapeada(s) — TL-01 a TL-35 (Seção 1, Índice de Telas), inalterado por esta
+      revisão (mudança é de casca/tokens visuais, não de fluxo). O fluxo §4.6
+      (ingestão via integração) é interno/técnico, sem tela, registrado como tal.
 - [x] Todo fluxo de tela tem os 4 estados especificados (vazio, carregando, erro,
-      sucesso), ou está marcado "não aplicável" com o porquê (Seção 4 — 9 telas
-      estáticas de resultado/desfecho marcadas "N/A" com justificativa explícita,
-      todas as demais com os 4 estados definidos)
-- [x] Todo componente novo está sinalizado como tal (Seção 3) — neste caso, **todos**
-      os componentes, por ser o primeiro `UX-SPEC.md` do projeto, sem design system
-      prévio a reaproveitar
+      sucesso), ou está marcado "não aplicável" com o porquê (Seção 4 — inalterado
+      por esta revisão, os 4 estados não dependem de casca visual)
+- [x] Todo componente novo está sinalizado como tal (Seção 3) — nesta revisão:
+      Barra de Navegação Lateral, Cartão de Autenticação, Menu de Navegação
+      Mobile e Cartão de Indicador marcados **Novo**; Header institucional e
+      Navegação Principal horizontal marcados **Substituído** (não apagados,
+      Seção 3.1) para que o Tech Lead veja exatamente o que reestimar
 - [x] Toda tela passou por `accessibility-review` sem pendência crítica aberta
-      (Seção 5) — regras transversais aplicadas às 35 telas, mais 9 pontos
-      específicos de maior risco tratados individualmente; o único item deixado como
-      critério de aceite a validar na implementação (componente de visualização de
-      PDF/HTML acessível, TL-22) está marcado explicitamente como tal, não como
-      pendência silenciosa
+      (Seção 5) — regras transversais revalidadas contra a nova casca nesta
+      revisão (5.1.1 a 5.1.3, novas), incluindo um achado de contraste do item
+      ativo da navegação lateral (Seção 3.3.2) com tratamento definido, não
+      deixado como pendência. O item pré-existente de PDF/HTML acessível (TL-22)
+      permanece marcado como critério de aceite a validar na implementação
 - [x] Comportamento responsivo definido para todo fluxo relevante (Seção 6) —
-      aplicável a todas as 35 telas, produto não é API-only
+      decisão de colapso da Barra de Navegação Lateral em mobile fechada nesta
+      revisão (6.1.1), antes deixada em aberto para o Frontend
 - [x] Toda restrição técnica do `SDD.md` foi checada via `technical-constraint-check`
-      (Seção 7.1, oito restrições mapeadas — sete sem conflito, uma delas o próprio
-      ADR-011 pós-resolução, também sem conflito/impacto de tela) e todo conflito
+      (Seção 7.1, restrições originais; Seção 7.4, nova, quatro elementos da
+      revisão "Painel de Saúde" checados, todos sem conflito) e todo conflito
       encontrado está sinalizado ao Software Architect, não resolvido por conta
-      própria (Seção 7.2 — contraste de marca vs. WCAG, registrado em
-      `BLOCKERS.md` Bloqueio 001, **hoje Resolvido**)
+      própria (Seção 7.2 — contraste de marca vs. WCAG, Bloqueio 001, **Resolvido**;
+      nenhum novo bloqueio aberto nesta revisão)
 - [x] Nenhuma das 7 seções está vazia ou com placeholder
 
-**Veredito do UX/UI**: `UX-SPEC.md` pronto e **liberado para o Tech Lead** como
-especificação completa. Seções já eram consumíveis incrementalmente desde a
-publicação inicial deste documento. O único bloqueio aberto durante este trabalho
-(`BLOCKERS.md` Bloqueio 001, contraste de marca vs. WCAG 2.1 AA) foi resolvido
-pelo Software Architect via ADR-011/`SDD.md` §7.7 — releitura confirmada nesta
-atualização (Seção 7.2): a resolução é um gate inteiramente interno ao processo
-de configuração de `BRANDING_CONFIG` (script determinístico + checklist manual da
-equipe interna, antes do go-live), sem nenhuma superfície na SPA — **nenhuma
-tela, estado ou componente deste documento precisou ser alterado** em decorrência
-dela. Não há bloqueio aberto pendente. Nenhuma outra reabertura de escopo foi
-necessária.
+**Veredito do UX/UI**: `UX-SPEC.md` **revisado e liberado incrementalmente para o
+Tech Lead** replanejar o retrabalho decidido pelo stakeholder do produto
+(mudança de direção visual "Painel de Saúde", impactando Lote 1 completo e parte
+do Lote 4 já implementados e aprovados por QA/DevSecOps). Nenhuma restrição
+técnica do `SDD.md` foi violada pela nova direção (Seção 7.4) — nenhum
+escalonamento ao Software Architect foi necessário nesta revisão. Os quatro
+achados de contraste/uso identificados durante a verificação WCAG 2.1 AA desta
+revisão (Seção 3.3.2) foram resolvidos dentro da autoridade normal do UX/UI, com
+tratamento explícito, não deixados como pendência silenciosa. O bloqueio histórico
+do documento (`BLOCKERS.md` Bloqueio 001, contraste de marca vs. WCAG 2.1 AA)
+continua Resolvido, sem relação com esta revisão. **Decisão de esforço, lotes e
+`TASK.md` cabe ao Tech Lead — não é decidida por este agente.**
 

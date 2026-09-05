@@ -50,6 +50,17 @@ const DEFAULTS = {
   // quando isso existir, `INTEGRATION_ENGINE_ADMIN_ALLOW_INSECURE_TLS=false`
   // desativa este bypass.
   allowInsecureTls: true,
+  // BE-09 (`TASK.md`) — mesmo default de desenvolvimento/CI local de
+  // `loadServiceApiKeyConfig` (`backend/src/security/service-api-key-config.ts`).
+  // Em produção, o secret manager (SDD.md §7.5) injeta a mesma variável
+  // `INTERNAL_SERVICE_API_KEY` tanto no app core quanto no ambiente que
+  // roda este script de deploy — nunca um valor divergente por ambiente.
+  // Nota de correção pós-implementação (fix-loop, BE-09): o nome de
+  // variável lido abaixo era `SERVICE_API_KEY` até a revisão pós-
+  // implementação encontrar que `infra/modules/secrets/main.tf` já
+  // provisionava este secret sob `INTERNAL_SERVICE_API_KEY` desde a
+  // fundação de infraestrutura — ver `backend/docs/service-api-key-auth.md`.
+  serviceApiKey: 'portalmed_service_api_key_dev_only_change_me',
 };
 
 /** `loadDeployConfig` — pura, testável sem mutar `process.env` (mesmo padrão de `loadRedisConfig`/`loadObjectStorageConfig`). */
@@ -63,21 +74,32 @@ export function loadDeployConfig(env = process.env) {
       env.INTEGRATION_ENGINE_ADMIN_ALLOW_INSECURE_TLS === undefined
         ? DEFAULTS.allowInsecureTls
         : env.INTEGRATION_ENGINE_ADMIN_ALLOW_INSECURE_TLS !== 'false',
+    serviceApiKey: env.INTERNAL_SERVICE_API_KEY || DEFAULTS.serviceApiKey,
   };
 }
 
 /**
- * Substitui o placeholder `__CORE_INGEST_ACL_URL__` do template de canal
- * pelo endpoint real da ACL do core para o ambiente-alvo — nenhum endpoint
- * de ambiente específico fica hardcoded no XML versionado (`TASK.md` §1.1).
+ * Substitui os placeholders `__CORE_INGEST_ACL_URL__` e `__SERVICE_API_KEY__`
+ * do template de canal pelos valores reais do ambiente-alvo — nenhum
+ * endpoint/credencial de ambiente específico fica hardcoded no XML
+ * versionado (`TASK.md` §1.1). `__SERVICE_API_KEY__` (BE-09) é o header
+ * `X-Service-Api-Key` que o `HTTP Sender` do canal passa a enviar, exigido
+ * por `ServiceApiKeyGuard` em `IntegrationEngineController`.
  */
-export function renderChannelXml(templateXml, coreIngestAclUrl) {
+export function renderChannelXml(templateXml, coreIngestAclUrl, serviceApiKey) {
   if (!templateXml.includes('__CORE_INGEST_ACL_URL__')) {
     throw new Error(
       'Template de canal não contém o placeholder __CORE_INGEST_ACL_URL__ — arquivo de canal inesperado.',
     );
   }
-  return templateXml.replaceAll('__CORE_INGEST_ACL_URL__', coreIngestAclUrl);
+  if (!templateXml.includes('__SERVICE_API_KEY__')) {
+    throw new Error(
+      'Template de canal não contém o placeholder __SERVICE_API_KEY__ — arquivo de canal inesperado (BE-09).',
+    );
+  }
+  return templateXml
+    .replaceAll('__CORE_INGEST_ACL_URL__', coreIngestAclUrl)
+    .replaceAll('__SERVICE_API_KEY__', serviceApiKey);
 }
 
 /**
@@ -236,7 +258,7 @@ export async function deployChannel(config, cookie, channelId) {
  */
 export async function deployHl7v2TestChannel(config = loadDeployConfig()) {
   const template = await readFile(HL7V2_TEST_CHANNEL_XML_PATH, 'utf-8');
-  const channelXml = renderChannelXml(template, config.coreIngestAclUrl);
+  const channelXml = renderChannelXml(template, config.coreIngestAclUrl, config.serviceApiKey);
   const cookie = await loginToEngine(config);
   await upsertChannel(config, cookie, HL7V2_TEST_CHANNEL_ID, channelXml);
   await deployChannel(config, cookie, HL7V2_TEST_CHANNEL_ID);

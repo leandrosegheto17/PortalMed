@@ -47,6 +47,17 @@ describe('AppModule — bounded contexts (SDD.md §2.1 / ADR-001 / ADR-005)', ()
   });
 
   it('compila como módulo de teste do NestJS sem erro de wiring (DI, imports)', async () => {
+    // BE-07 (`TASK.md`) — `ImagingGatewayModule` importa `ObjectStorageModule`
+    // (BE-08), cujo `useFactory` (`loadObjectStorageConfig`) falha
+    // explicitamente sem `OBJECT_STORAGE_BUCKET` (decisão de detalhe de
+    // BE-08 — nunca um bucket "adivinhado"). Este teste só prova que o
+    // *wiring* de DI compila, não que a infraestrutura real está
+    // disponível — por isso a env mínima é setada aqui e restaurada depois,
+    // mesmo padrão já usado pelas suítes e2e de infraestrutura
+    // (`object-storage-infrastructure.e2e-spec.ts`).
+    const originalEnv = { ...process.env };
+    process.env.OBJECT_STORAGE_BUCKET = 'portalmed-exames-wiring-test';
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -54,6 +65,7 @@ describe('AppModule — bounded contexts (SDD.md §2.1 / ADR-001 / ADR-005)', ()
     expect(moduleRef).toBeDefined();
 
     await moduleRef.close();
+    process.env = originalEnv;
   });
 
   it.each(BOUNDED_CONTEXT_MODULES)(

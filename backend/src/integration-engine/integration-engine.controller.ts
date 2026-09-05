@@ -1,7 +1,8 @@
-import { Body, Controller, HttpCode, Logger, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Logger, Post, UseGuards } from '@nestjs/common';
 import { parseEngineNormalizedMessage } from './engine-normalized-message.js';
 import { toCanonicalExamResultMessage } from './canonical-exam-result-message.js';
 import { IntegrationEngineAclService } from './integration-engine-acl.service.js';
+import { ServiceApiKeyGuard } from '../security/index.js';
 
 /**
  * BE-06 (`TASK.md`) — endpoint interno que a Integration Engine (NextGen
@@ -15,22 +16,17 @@ import { IntegrationEngineAclService } from './integration-engine-acl.service.js
  * Nenhuma lógica de negócio de ingestão (associação por CPF, resiliência a
  * indisponibilidade, fila de exceção — BE-24) acontece aqui.
  *
- * **Segurança (nota para BE-09, tarefa futura, não implementada aqui)**:
- * `GUARDRAILS.md` item 13 exige que a comunicação Integration Gateway →
- * Core seja "autenticada por credencial de serviço dedicada". BE-09 (3 dp,
- * `TASK.md` §3.1) é a tarefa dedicada a essa credencial (API key de
- * serviço) — este endpoint é deixado pronto para receber um guard
- * (`@UseGuards(ServiceApiKeyGuard)`, a ser criado por BE-09) sem precisar
- * de nenhuma outra mudança estrutural. Até lá, o único mecanismo de
- * isolamento é de rede: a Integration Engine não é exposta publicamente
- * (`SDD.md` §7.5, `infra/modules/network/main.tf`) — mas o próprio
- * endpoint do core, por estar atrás do mesmo domínio/ALB que a SPA
- * (`infra/environments/{staging,production}/main.tf`, `CORE_INGEST_ENDPOINT`), tecnicamente
- * aceita requisição de qualquer origem até BE-09 fechar essa lacuna. Não é
- * uma omissão silenciosa: é o escopo exato que esta tarefa (BE-06) recebeu
- * do Tech Lead, com BE-09 já decomposta separadamente para fechá-la antes
- * de qualquer tráfego real de produção.
+ * **Segurança (BE-09, `TASK.md`)**: `GUARDRAILS.md` item 13 exige que a
+ * comunicação Integration Gateway → Core seja "autenticada por credencial
+ * de serviço dedicada". `@UseGuards(ServiceApiKeyGuard)` (`src/security/`)
+ * exige o header `X-Service-Api-Key` com a credencial configurada (env
+ * `INTERNAL_SERVICE_API_KEY`) em toda requisição a este endpoint — o `HTTP Sender`
+ * do canal da engine (`hl7v2-oru-canonical-test-channel.xml`) envia esse
+ * header desde esta tarefa. Ver `backend/docs/service-api-key-auth.md` para
+ * a decisão completa (por que este endpoint E o placeholder do core que ele
+ * chama, `CoreIngestPlaceholderController`, recebem o mesmo guard).
  */
+@UseGuards(ServiceApiKeyGuard)
 @Controller('internal/integration-engine')
 export class IntegrationEngineController {
   private readonly logger = new Logger(IntegrationEngineController.name);

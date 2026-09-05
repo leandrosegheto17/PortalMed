@@ -2,4 +2,7 @@
 // transversal de fila assíncrona (BullMQ), não um bounded context.
 export { QueueModule } from './queue.module.js';
 export { QueueRegistryService } from './queue-registry.service.js';
-export { buildBullMqConnectionOptions } from './queue-connection.js';
+export {
+  buildBullMqConnectionOptions,
+  buildBullMqConnectionOptionsFromConfig,
+} from './queue-connection.js';

@@ -291,15 +291,16 @@ module "imaging_gateway_service" {
   ]
   secret_arns = [module.secrets.internal_service_api_key_arn]
 
-  # Orthanc precisa gravar o JPEG/PNG convertido no Object Storage
-  task_policy_json = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["s3:PutObject"]
-      Resource = "${module.object_storage.bucket_arn}/*"
-    }]
-  })
+  # SEC-DEBT-003 (SECURITY-REVIEW.md, corrigido em 2026-09-05): este servico
+  # nunca precisou de acesso direto ao Object Storage. Quem grava o
+  # JPEG/PNG convertido no bucket e o ImagingConversionProcessor, rodando
+  # dentro de core_service (que ja detem s3:GetObject/s3:PutObject sobre o
+  # mesmo bucket, acima) - o Orthanc nunca chama a API do S3 (confirmado
+  # por leitura completa de on-stable-study.lua e de
+  # backend/src/imaging-gateway/, sem nenhuma chamada AWS SDK/S3).
+  # task_policy_json omitido de proposito (default null no modulo
+  # ecs-service): nenhuma IAM policy adicional e anexada a task role deste
+  # servico.
 
   service_discovery_registry_arn = aws_service_discovery_service.imaging_gateway.arn
 }

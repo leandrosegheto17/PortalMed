@@ -10,6 +10,7 @@ import {
 } from '../../src/integration-engine/index.js';
 import { INTEGRATION_ENGINE_CONFIG } from '../../src/integration-engine/integration-engine.tokens.js';
 import type { IntegrationEngineConfig } from '../../src/integration-engine/integration-engine-config.js';
+import { SERVICE_API_KEY_CONFIG } from '../../src/security/index.js';
 // Import direto do script de deploy (fora de src/test/migrations de
 // propósito — não é código de runtime da aplicação, ver
 // backend/docs/integration-engine.md). `.mjs` puro, sem necessidade de
@@ -17,6 +18,7 @@ import type { IntegrationEngineConfig } from '../../src/integration-engine/integ
 import { deployHl7v2TestChannel } from '../../integration-engine/deploy-channel.mjs';
 
 const ENGINE_IMAGE = 'nextgenhealthcare/connect:4.5.2';
+const TEST_SERVICE_API_KEY = 'chave-de-servico-e2e-nextgen-connect';
 const ADMIN_PORT = 8443;
 const MLLP_PORT = 6661;
 const MLLP_START = 0x0b;
@@ -82,6 +84,15 @@ function buildOruR01Message(): string {
  * Timeout generoso (a engine é uma aplicação Java que leva ~15-20s para
  * subir, medido empiricamente durante esta implementação) — mesmo
  * raciocínio de `object-storage-infrastructure.e2e-spec.ts` (LocalStack).
+ *
+ * **BE-09 (`TASK.md`)**: desde esta tarefa, `IntegrationEngineController`
+ * exige `@UseGuards(ServiceApiKeyGuard)` — o canal real
+ * (`hl7v2-oru-canonical-test-channel.xml`) envia o header
+ * `X-Service-Api-Key` (substituído em tempo de deploy pelo mesmo mecanismo
+ * de `__CORE_INGEST_ACL_URL__`), com o mesmo valor configurado no app via
+ * `SERVICE_API_KEY_CONFIG` sobrescrito abaixo. Este teste prova que o
+ * emissor real (a engine) — não só o dublê usado em
+ * `integration-engine.e2e-spec.ts` — consegue de fato se autenticar.
  */
 describe('BE-06 — canal HL7 v2.x MLLP real da Integration Engine (NextGen Connect, testcontainers)', () => {
   let container: StartedTestContainer;
@@ -107,6 +118,8 @@ describe('BE-06 — canal HL7 v2.x MLLP real da Integration Engine (NextGen Conn
     })
       .overrideProvider(INTEGRATION_ENGINE_CONFIG)
       .useValue(mutableConfig)
+      .overrideProvider(SERVICE_API_KEY_CONFIG)
+      .useValue({ serviceApiKey: TEST_SERVICE_API_KEY })
       .compile();
     app = moduleRef.createNestApplication();
     // Precisa escutar em todas as interfaces (não só loopback) para ser
@@ -126,6 +139,10 @@ describe('BE-06 — canal HL7 v2.x MLLP real da Integration Engine (NextGen Conn
       adminPassword: 'admin',
       coreIngestAclUrl,
       allowInsecureTls: true,
+      // BE-09 (`TASK.md`) — o `HTTP Sender` do canal real precisa enviar o
+      // mesmo header/valor validado pelo `ServiceApiKeyGuard` do app (
+      // `SERVICE_API_KEY_CONFIG` sobrescrito acima com o mesmo valor).
+      serviceApiKey: TEST_SERVICE_API_KEY,
     });
   }, 180_000);
 

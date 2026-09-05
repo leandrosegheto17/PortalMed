@@ -156,20 +156,19 @@ introduzir uma dependência nova só para isso (`TASK.md` §1.1,
 "Simplicidade"). Reavaliar se um módulo de domínio futuro precisar de
 validação de DTO mais rica.
 
-### Segurança — nota para BE-09 (tarefa futura, não implementada aqui)
+### Segurança — BE-09 (implementada, `backend/docs/service-api-key-auth.md`)
 
 `GUARDRAILS.md` item 13 exige que a comunicação Integration Gateway → Core
-seja "autenticada por credencial de serviço dedicada". BE-09 (3 dp,
-`TASK.md` §3.1) é a tarefa dedicada a essa credencial (API key de serviço)
-— `IntegrationEngineController` é deixado pronto para receber um guard
-(`@UseGuards(ServiceApiKeyGuard)`, a ser criado por BE-09) sem precisar de
-nenhuma outra mudança estrutural. Até lá, o isolamento é só de rede (a
-engine não é exposta publicamente) — o próprio `/internal/ingest`, por
-estar atrás do mesmo domínio/ALB que a SPA, tecnicamente aceita requisição
-de qualquer origem até BE-09 fechar essa lacuna. Não é uma omissão
-silenciosa: é o escopo exato que esta tarefa recebeu do Tech Lead, com
-BE-09 já decomposta separadamente para fechá-la antes de qualquer tráfego
-real de produção.
+seja "autenticada por credencial de serviço dedicada". Esta nota descrevia
+a lacuna antes de BE-09: `IntegrationEngineController` era deixado pronto
+para receber um guard sem mudança estrutural adicional, e o isolamento era
+só de rede — o próprio `/internal/ingest`, por estar atrás do mesmo
+domínio/ALB que a SPA, tecnicamente aceitava requisição de qualquer origem.
+BE-09 fechou essa lacuna: `@UseGuards(ServiceApiKeyGuard)` (`src/security/`)
+em **ambos** os endpoints desta tarefa (`IntegrationEngineController` e
+`CoreIngestPlaceholderController`) — ver `backend/docs/service-api-key-auth.md`
+para a decisão completa, incluindo por que o placeholder "hop 2" também
+precisa do guard.
 
 ## Achados desta implementação (spike-like — SPK-02 já havia sinalizado o
 ## risco de curva de aprendizado de configuração de canal)
@@ -236,6 +235,8 @@ mock da engine.
   NestJS real (`@nestjs/testing` + `supertest`), prova o caminho **dentro
   do processo do core** (ACL → `/internal/ingest`) de ponta a ponta, sem
   Docker.
+  Inclui, desde BE-09, a bateria positivo/negativo do `ServiceApiKeyGuard`
+  (header ausente/vazio/incorreto/correto) para os dois endpoints.
 - `backend/test/integration-engine/hl7v2-channel.e2e-spec.ts` — a engine
   **real** (`nextgenhealthcare/connect:4.5.2`) via `testcontainers`:
   mensagem HL7 v2.x ORU^R01 enviada por socket TCP bruto com enquadramento
@@ -272,9 +273,6 @@ engine antes de produção real e então definir
 
 ## Escopo deliberadamente não incluído (tarefas futuras)
 
-- **BE-09** — credencial de serviço (API key) para autenticar a chamada
-  Integration Gateway → Core. Endpoint deixado pronto para receber o
-  guard, não implementado aqui.
 - **BE-18** — match de CPF/validação de maioridade no cadastro.
 - **BE-24** — lógica real de ingestão (`/internal/ingest`): associação por
   CPF, resiliência a indisponibilidade da fonte, roteamento para a fila de
